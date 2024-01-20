@@ -77,7 +77,10 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
       .par_iter_mut()
       .zip(right.par_iter())
       .for_each(|(a, b)| {
-        *a += *r * (*b - *a);
+        if !a.eq(&b) {
+          let m = *b - *a;
+          *a += *r * m;
+        }
       });
 
     self.Z.resize(n, Scalar::ZERO);

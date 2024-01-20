@@ -299,10 +299,10 @@ impl<G: Group> SumcheckProof<G> {
       claim_per_round = poly.evaluate(&r_i);
 
       // bound all tables to the verifier's challenege
-      poly_A.bound_poly_var_top(&r_i);
-      poly_B.bound_poly_var_top(&r_i);
-      poly_C.bound_poly_var_top(&r_i);
-      poly_D.bound_poly_var_top(&r_i);
+      let mut polys = [&mut *poly_A, &mut *poly_B, &mut *poly_C, &mut *poly_D];
+      polys.par_iter_mut().for_each(|poly| {
+        poly.bound_poly_var_top(&r_i);
+      });
     }
 
     Ok((
