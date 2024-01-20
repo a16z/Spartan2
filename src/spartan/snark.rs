@@ -414,7 +414,15 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for Relaxe
         };
 
         let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
-            *poly_A_comp * *poly_B_comp
+            if *poly_A_comp == G::Scalar::ZERO || *poly_B_comp == G::Scalar::ZERO {
+                G::Scalar::ZERO
+            } else if *poly_A_comp == G::Scalar::ONE {
+                *poly_B_comp
+            } else if *poly_B_comp == G::Scalar::ONE {
+                *poly_A_comp
+            } else {
+                *poly_A_comp * *poly_B_comp
+            }
         };
         let (sc_proof_inner, r_y, _claims_inner) =
             SumcheckProof::prove_quad(
