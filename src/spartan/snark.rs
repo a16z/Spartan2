@@ -4,6 +4,8 @@
 //! description of R1CS matrices. This is essentially optimal for the verifier when using
 //! an IPA-based polynomial commitment scheme.
 
+use std::ops::Neg;
+
 use crate::{
     bellpepper::{
         r1cs::{SpartanShape, SpartanWitness},
@@ -260,8 +262,60 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for Relaxe
                                poly_C_comp: &G::Scalar,
                                poly_D_comp: &G::Scalar|
          -> G::Scalar {
-            *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp)
+          // Goal: compute *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) fast.
+          // poly_A we know to be uniformly random
+          // poly_B: A matrix, poly_C: B matrix, poly_D: C matrix
+          if poly_B_comp.eq(&G::Scalar::ZERO) || poly_C_comp.eq(&G::Scalar::ZERO) {
+            *poly_A_comp * poly_D_comp.neg()
+          } else {
+            let inner = if poly_B_comp.eq(&G::Scalar::ONE) {
+              *poly_C_comp - *poly_D_comp
+            } else if poly_C_comp.eq(&G::Scalar::ONE)  {
+              *poly_B_comp - *poly_D_comp
+            } else {
+              *poly_B_comp * *poly_C_comp - *poly_D_comp
+            };
+            *poly_A_comp * inner
+          }
         };
+        // let comb_func_outer = |poly_A_comp: &G::Scalar,
+        //                        poly_B_comp: &G::Scalar,
+        //                        poly_C_comp: &G::Scalar,
+        //                        poly_D_comp: &G::Scalar|
+        //  -> G::Scalar {
+        //     *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp)
+        // };
+
+        let _count_poly_items = |poly: &MultilinearPolynomial<G::Scalar>| {
+            let mut counts = std::collections::HashMap::new();
+            for i in 0..poly.len() {
+                *counts.entry(bincode::serialize(&poly[i]).unwrap()).or_insert(0) += 1;
+            }
+            let mut counts_vec: Vec<_> = counts.iter().collect();
+            counts_vec.sort_by(|a, b| b.1.cmp(a.1));
+            let mut num_one = 0;
+            for (item, count) in counts_vec {
+                let decoded_item = bincode::deserialize::<G::Scalar>(item).unwrap();
+                if *count > 10 {
+                    println!("{:?}: {}", decoded_item, count);
+                } else if *count == 1 {
+                  num_one += 1;
+                }
+            }
+            println!("Total with only a single appearance: {}", num_one);
+        };
+
+        // println!("\n\nPoly tau ====================== {}", poly_tau.len());
+        // count_poly_items(&poly_tau);
+        // println!("\n\nPoly Az ====================== {}", poly_Az.len());
+        // count_poly_items(&poly_Az);
+        // println!("\n\nPoly Bz ====================== {}", poly_Bz.len());
+        // count_poly_items(&poly_Bz);
+        // println!("\n\nPoly uCz_E ====================== {}", poly_uCz_E.len());
+        // count_poly_items(&poly_uCz_E);
+
+
+
         let (sc_proof_outer, r_x, claims_outer) =
             SumcheckProof::prove_cubic_with_additive_term(
                 &G::Scalar::ZERO, // claim is zero
