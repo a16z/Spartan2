@@ -155,6 +155,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for Relaxe
         drop(_guard);
         drop(span);
 
+<<<<<<< HEAD
         let span = tracing::span!(tracing::Level::INFO, "setup pk");
         let _guard = span.enter();
         let pk = ProverKey {
@@ -162,6 +163,168 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for Relaxe
             pk_ee,
             S,
             vk_digest: vk.digest(),
+=======
+    let span = tracing::span!(tracing::Level::INFO, "setup pk");
+    let _guard = span.enter();
+    let pk = ProverKey {
+      ck,
+      pk_ee,
+      S,
+      vk_digest: vk.digest(),
+    };
+    drop(_guard); 
+    drop(span); 
+
+    Ok((pk, vk))
+  }
+
+  #[tracing::instrument(skip_all, name = "SNARK::setup_uniform")]
+  fn setup_uniform<C: Circuit<G::Scalar>>(
+    circuit: C,
+    num_steps: usize, 
+  ) -> Result<(ProverKey<G, EE>, UniformVerifierKey<G, EE>), SpartanError> {
+    let mut cs: ShapeCS<G> = ShapeCS::new();
+    let _ = circuit.synthesize(&mut cs);
+    let (S, S_single, ck) = cs.r1cs_shape_uniform(num_steps);
+
+    let (pk_ee, vk_ee) = EE::setup(&ck);
+
+    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(S.clone(), vk_ee, S_single, num_steps);
+
+    let pk = ProverKey {
+      ck,
+      pk_ee,
+      S,
+      vk_digest: vk.digest(),
+    };
+
+    Ok((pk, vk))
+  }
+
+  /// produces a succinct proof of satisfiability of a `RelaxedR1CS` instance
+  #[tracing::instrument(skip_all, name = "Spartan2::R1CSSnark::prove")]
+  fn prove<C: Circuit<G::Scalar>>(pk: &Self::ProverKey, circuit: C) -> Result<Self, SpartanError> {
+    let mut cs: SatisfyingAssignment<G> = SatisfyingAssignment::new();
+    let _ = circuit.synthesize(&mut cs);
+
+    let span = tracing::span!(tracing::Level::INFO, "committing to W again");
+    let _guard = span.enter();
+    let (u, w) = cs
+      .r1cs_instance_and_witness(&pk.S, &pk.ck)
+      .map_err(|_e| SpartanError::UnSat)?;
+    drop(_guard); 
+    drop(span); 
+
+    // convert the instance and witness to relaxed form
+    let (U, W) = (
+      RelaxedR1CSInstance::from_r1cs_instance_unchecked(&u.comm_W, &u.X),
+      RelaxedR1CSWitness::from_r1cs_witness(&pk.S, &w),
+    );
+
+    let W = W.pad(&pk.S); // pad the witness
+    let mut transcript = G::TE::new(b"RelaxedR1CSSNARK");
+
+    // sanity check that R1CSShape has certain size characteristics
+    pk.S.check_regular_shape();
+
+    // append the digest of vk (which includes R1CS matrices) and the RelaxedR1CSInstance to the transcript
+    transcript.absorb(b"vk", &pk.vk_digest);
+    transcript.absorb(b"U", &U);
+
+    // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
+    let mut z = [W.W.clone(), vec![U.u], U.X.clone()].concat();
+
+    let (num_rounds_x, num_rounds_y) = (
+      usize::try_from(pk.S.num_cons.ilog2()).unwrap(),
+      (usize::try_from(pk.S.num_vars.ilog2()).unwrap() + 1),
+    );
+
+    // outer sum-check
+    let tau = (0..num_rounds_x)
+      .map(|_i| transcript.squeeze(b"t"))
+      .collect::<Result<Vec<G::Scalar>, SpartanError>>()?;
+
+    let mut poly_tau = MultilinearPolynomial::new(EqPolynomial::new(tau).evals());
+    let (mut poly_Az, mut poly_Bz, poly_Cz, mut poly_uCz_E) = {
+      let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec(&z)?;
+      let poly_uCz_E = (0..pk.S.num_cons)
+        .map(|i| U.u * poly_Cz[i] + W.E[i])
+        .collect::<Vec<G::Scalar>>();
+      (
+        MultilinearPolynomial::new(poly_Az),
+        MultilinearPolynomial::new(poly_Bz),
+        MultilinearPolynomial::new(poly_Cz),
+        MultilinearPolynomial::new(poly_uCz_E),
+      )
+    };
+
+    let comb_func_outer =
+      |poly_A_comp: &G::Scalar,
+       poly_B_comp: &G::Scalar,
+       poly_C_comp: &G::Scalar,
+       poly_D_comp: &G::Scalar|
+       -> G::Scalar { *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) };
+    let (sc_proof_outer, r_x, claims_outer) = SumcheckProof::prove_cubic_with_additive_term(
+      &G::Scalar::ZERO, // claim is zero
+      num_rounds_x,
+      &mut poly_tau,
+      &mut poly_Az,
+      &mut poly_Bz,
+      &mut poly_uCz_E,
+      comb_func_outer,
+      &mut transcript,
+    )?;
+
+    // claims from the end of sum-check
+    let (claim_Az, claim_Bz): (G::Scalar, G::Scalar) = (claims_outer[1], claims_outer[2]);
+    let claim_Cz = poly_Cz.evaluate(&r_x);
+    let eval_E = MultilinearPolynomial::new(W.E.clone()).evaluate(&r_x);
+    transcript.absorb(
+      b"claims_outer",
+      &[claim_Az, claim_Bz, claim_Cz, eval_E].as_slice(),
+    );
+
+    // inner sum-check
+    let r = transcript.squeeze(b"r")?;
+    let claim_inner_joint = claim_Az + r * claim_Bz + r * r * claim_Cz;
+
+    let span = tracing::span!(tracing::Level::TRACE, "poly_ABC");
+    let _enter = span.enter();
+    let poly_ABC = {
+      // compute the initial evaluation table for R(\tau, x)
+      let evals_rx = EqPolynomial::new(r_x.clone()).evals();
+
+      // Bounds "row" variables of (A, B, C) matrices viewed as 2d multilinear polynomials
+      let compute_eval_table_sparse =
+        |S: &R1CSShape<G>, rx: &[G::Scalar]| -> (Vec<G::Scalar>, Vec<G::Scalar>, Vec<G::Scalar>) {
+          assert_eq!(rx.len(), S.num_cons);
+
+          let inner = |M: &Vec<(usize, usize, G::Scalar)>, M_evals: &mut Vec<G::Scalar>| {
+            for (row, col, val) in M {
+              if val.eq(&G::Scalar::ONE) {
+                M_evals[*col] += rx[*row];
+              } else {
+                let m = rx[*row] * val;
+                M_evals[*col] += m;
+              }
+            }
+          };
+
+          let (mut A_evals, mut B_evals, mut C_evals) = (
+            vec![G::Scalar::ZERO; 2 * S.num_vars],
+            vec![G::Scalar::ZERO; 2 * S.num_vars],
+            vec![G::Scalar::ZERO; 2 * S.num_vars]
+          );
+          rayon::join(
+            || inner(&pk.S.A, &mut A_evals),
+            || rayon::join(
+              || inner(&pk.S.B, &mut B_evals),
+              || inner(&pk.S.C, &mut C_evals),
+            ),
+          );
+
+          (A_evals, B_evals, C_evals)
+>>>>>>> a883dd5 (working segmentation)
         };
         drop(_guard);
         drop(span);
