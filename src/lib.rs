@@ -29,7 +29,7 @@ use errors::SpartanError;
 use serde::{Deserialize, Serialize};
 use traits::{
   commitment::{CommitmentEngineTrait, CommitmentTrait},
-  snark::RelaxedR1CSSNARKTrait,
+  snark::{PrecommittedSNARKTrait, RelaxedR1CSSNARKTrait},
   Group,
 };
 
@@ -101,6 +101,71 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G>, C: Circuit<G::Scalar>> SNARK<G, S, C
   pub fn verify(&self, vk: &VerifierKey<G, S>, io: &[G::Scalar]) -> Result<(), SpartanError> {
     // verify the snark using the constructed instance
     self.snark.verify(&vk.vk, io)
+  }
+}
+
+
+/// Precommitted SNARK 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound = "")]
+pub struct PrecommittedSNARK<G, S, C>
+where
+  G: Group,
+  S: RelaxedR1CSSNARKTrait<G>,
+  C: Circuit<G::Scalar>,
+{
+  snark: S, // snark proving the witness is satisfying
+  _p: PhantomData<G>,
+  _p2: PhantomData<C>,
+}
+
+impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + PrecommittedSNARKTrait<G>, C: Circuit<G::Scalar>> PrecommittedSNARK<G, S, C> {
+  /// Produces prover and verifier keys for the direct SNARK
+  pub fn setup(circuit: C) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
+    let (pk, vk) = S::setup(circuit)?;
+    Ok((ProverKey { pk }, VerifierKey { vk }))
+  }
+
+  /// Produces prover and verifier keys for the direct SNARK
+  pub fn setup_uniform(circuit: C, n: usize) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
+    let (pk, vk) = S::setup_uniform(circuit, n)?;
+    Ok((ProverKey { pk }, VerifierKey { vk }))
+  }
+
+  /// Produces a proof of satisfiability of the provided circuit
+  pub fn prove(pk: &ProverKey<G, S>, circuit: C) -> Result<Self, SpartanError> {
+    // prove the instance using Spartan
+    let snark = S::prove(&pk.pk, circuit)?;
+
+    Ok(PrecommittedSNARK {
+      snark,
+      _p: Default::default(),
+      _p2: Default::default(),
+    })
+  }
+
+  /// Verifies a proof of satisfiability
+  pub fn verify(&self, vk: &VerifierKey<G, S>, io: &[G::Scalar]) -> Result<(), SpartanError> {
+    // verify the snark using the constructed instance
+    self.snark.verify(&vk.vk, io)
+  }
+
+  /// Produces prover and verifier keys for the direct SNARK
+  pub fn setup_precommitted(circuit: C, ck: &CommitmentKey<G>) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
+    let (pk, vk) = S::setup_precommitted(circuit, ck)?;
+    Ok((ProverKey { pk }, VerifierKey { vk }))
+  }
+
+  /// Produces a proof of satisfiability of the provided circuit
+  pub fn prove_precommitted(pk: &ProverKey<G, S>, circuit: C, comm_W: Commitment<G>) -> Result<Self, SpartanError> {
+    // prove the instance using Spartan
+    let snark = S::prove_precommitted(&pk.pk, circuit, comm_W)?;
+
+    Ok(PrecommittedSNARK {
+      snark,
+      _p: Default::default(),
+      _p2: Default::default(),
+    })
   }
 }
 

@@ -1,5 +1,5 @@
 //! This module defines a collection of traits that define the behavior of a zkSNARK for RelaxedR1CS
-use crate::{errors::SpartanError, traits::Group};
+use crate::{errors::SpartanError, traits::Group, CommitmentKey, Commitment};
 use bellpepper_core::Circuit;
 use serde::{Deserialize, Serialize};
 
@@ -29,4 +29,19 @@ pub trait RelaxedR1CSSNARKTrait<G: Group>:
 
   /// Verifies a SNARK for a relaxed R1CS
   fn verify(&self, vk: &Self::VerifierKey, io: &[G::Scalar]) -> Result<(), SpartanError>;
+}
+
+/// The witness commitments and generators are passed in externally
+pub trait PrecommittedSNARKTrait<G: Group>:
+  Sized + Send + Sync + Serialize + for<'de> Deserialize<'de> + RelaxedR1CSSNARKTrait<G> 
+{
+  /// Setup that takes in the generators used to pre-committed the witness 
+  fn setup_precommitted<C: Circuit<G::Scalar>>(
+    circuit: C,
+    ck: &CommitmentKey<G>,
+  ) -> Result<(Self::ProverKey, Self::VerifierKey), SpartanError>;
+
+  /// Produces a new SNARK for a relaxed R1CS
+  // fn prove_precommitted<C: Circuit<G::Scalar>>(pk: &Self::ProverKey, circuit: C, comm_W: Commitment<G>) -> Result<Self, SpartanError>;
+  fn prove_precommitted<C: Circuit<G::Scalar>>(pk: &Self::ProverKey, circuit: C, comm_W: Commitment<G>) -> Result<Self, SpartanError>;
 }
