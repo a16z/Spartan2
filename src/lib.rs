@@ -29,7 +29,8 @@ use errors::SpartanError;
 use serde::{Deserialize, Serialize};
 use traits::{
   commitment::{CommitmentEngineTrait, CommitmentTrait},
-  snark::{PrecommittedSNARKTrait, RelaxedR1CSSNARKTrait},
+  snark::RelaxedR1CSSNARKTrait, 
+  upsnark::{UniformSNARKTrait, PrecommittedSNARKTrait}, 
   Group,
 };
 
@@ -72,7 +73,7 @@ where
   _p2: PhantomData<C>,
 }
 
-impl<G: Group, S: RelaxedR1CSSNARKTrait<G>, C: Circuit<G::Scalar>> SNARK<G, S, C> {
+impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + UniformSNARKTrait<G> + PrecommittedSNARKTrait<G>, C: Circuit<G::Scalar>> SNARK<G, S, C> {
   /// Produces prover and verifier keys for the direct SNARK
   pub fn setup(circuit: C) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
     let (pk, vk) = S::setup(circuit)?;
@@ -82,6 +83,12 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G>, C: Circuit<G::Scalar>> SNARK<G, S, C
   /// Produces prover and verifier keys for the direct SNARK
   pub fn setup_uniform(circuit: C, n: usize) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
     let (pk, vk) = S::setup_uniform(circuit, n)?;
+    Ok((ProverKey { pk }, VerifierKey { vk }))
+  }
+
+  /// Produces prover and verifier keys for the direct SNARK
+  pub fn setup_precommitted(circuit: C, n: usize) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
+    let (pk, vk) = S::setup_precommitted(circuit, n)?;
     Ok((ProverKey { pk }, VerifierKey { vk }))
   }
 
@@ -101,71 +108,6 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G>, C: Circuit<G::Scalar>> SNARK<G, S, C
   pub fn verify(&self, vk: &VerifierKey<G, S>, io: &[G::Scalar]) -> Result<(), SpartanError> {
     // verify the snark using the constructed instance
     self.snark.verify(&vk.vk, io)
-  }
-}
-
-
-/// Precommitted SNARK 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound = "")]
-pub struct PrecommittedSNARK<G, S, C>
-where
-  G: Group,
-  S: RelaxedR1CSSNARKTrait<G>,
-  C: Circuit<G::Scalar>,
-{
-  snark: S, // snark proving the witness is satisfying
-  _p: PhantomData<G>,
-  _p2: PhantomData<C>,
-}
-
-impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + PrecommittedSNARKTrait<G>, C: Circuit<G::Scalar>> PrecommittedSNARK<G, S, C> {
-  /// Produces prover and verifier keys for the direct SNARK
-  pub fn setup(circuit: C) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
-    let (pk, vk) = S::setup(circuit)?;
-    Ok((ProverKey { pk }, VerifierKey { vk }))
-  }
-
-  /// Produces prover and verifier keys for the direct SNARK
-  pub fn setup_uniform(circuit: C, n: usize) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
-    let (pk, vk) = S::setup_uniform(circuit, n)?;
-    Ok((ProverKey { pk }, VerifierKey { vk }))
-  }
-
-  /// Produces a proof of satisfiability of the provided circuit
-  pub fn prove(pk: &ProverKey<G, S>, circuit: C) -> Result<Self, SpartanError> {
-    // prove the instance using Spartan
-    let snark = S::prove(&pk.pk, circuit)?;
-
-    Ok(PrecommittedSNARK {
-      snark,
-      _p: Default::default(),
-      _p2: Default::default(),
-    })
-  }
-
-  /// Verifies a proof of satisfiability
-  pub fn verify(&self, vk: &VerifierKey<G, S>, io: &[G::Scalar]) -> Result<(), SpartanError> {
-    // verify the snark using the constructed instance
-    self.snark.verify(&vk.vk, io)
-  }
-
-  /// Produces prover and verifier keys for the direct SNARK
-  pub fn setup_precommitted(circuit: C, ck: &CommitmentKey<G>) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
-    let (pk, vk) = S::setup_precommitted(circuit, ck)?;
-    Ok((ProverKey { pk }, VerifierKey { vk }))
-  }
-
-  /// Produces a proof of satisfiability of the provided circuit
-  pub fn prove_precommitted(pk: &ProverKey<G, S>, circuit: C, comm_W: Commitment<G>) -> Result<Self, SpartanError> {
-    // prove the instance using Spartan
-    let snark = S::prove_precommitted(&pk.pk, circuit, comm_W)?;
-
-    Ok(PrecommittedSNARK {
-      snark,
-      _p: Default::default(),
-      _p2: Default::default(),
-    })
   }
 }
 
@@ -233,20 +175,20 @@ mod tests {
   fn test_snark_hyrax_pc() {
     type G = pasta_curves::pallas::Point;
     type EE = crate::provider::hyrax_pc::HyraxEvaluationEngine<G>;
-    type S = crate::spartan::snark::RelaxedR1CSSNARK<G, EE>;
+    type S = crate::spartan::relaxed_snark::RelaxedR1CSSNARK<G, EE>;
     //type Spp = crate::spartan::ppsnark::RelaxedR1CSSNARK<G, EE>;
     test_snark_with::<G, S>();
     //test_snark_with::<G, Spp>();
 
     type G2 = bn256::Point;
     type EE2 = crate::provider::hyrax_pc::HyraxEvaluationEngine<G2>;
-    type S2 = crate::spartan::snark::RelaxedR1CSSNARK<G2, EE2>;
+    type S2 = crate::spartan::relaxed_snark::RelaxedR1CSSNARK<G2, EE2>;
     test_snark_with::<G2, S2>();
     //test_snark_with::<G2, S2pp>();
 
     type G3 = secp256k1::Point;
     type EE3 = crate::provider::hyrax_pc::HyraxEvaluationEngine<G3>;
-    type S3 = crate::spartan::snark::RelaxedR1CSSNARK<G3, EE3>;
+    type S3 = crate::spartan::relaxed_snark::RelaxedR1CSSNARK<G3, EE3>;
     //type S3pp = crate::spartan::ppsnark::RelaxedR1CSSNARK<G3, EE3>;
     test_snark_with::<G3, S3>();
     //test_snark_with::<G3, S3pp>();
