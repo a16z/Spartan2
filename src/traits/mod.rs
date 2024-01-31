@@ -52,7 +52,7 @@ pub trait Group:
     + for<'de> Deserialize<'de>;
 
   /// A type representing preprocessed group element
-  type PreprocessedGroupElement: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de>;
+  type PreprocessedGroupElement: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + Mul<<Self as Group>::Scalar, Output = Self> + Add<<Self as Group>::PreprocessedGroupElement>;
 
   /// A type that provides a generic Fiat-Shamir transcript to be used when externalizing proofs
   type TE: TranscriptEngineTrait<Self>;
@@ -86,6 +86,12 @@ pub trait Group:
 
   /// Returns A, B, and the order of the group as a big integer
   fn get_curve_params() -> (Self::Base, Self::Base, BigInt);
+
+  /// Performs scalar mul for PreprocessedGroupelement
+  fn scalar_mul(
+      b: &Self::PreprocessedGroupElement,
+      s: &Self::Scalar,
+  ) -> Self;
 }
 
 /// Represents a compressed version of a group element
