@@ -11,6 +11,7 @@ use core::{
     marker::PhantomData,
     ops::{Add, AddAssign, Mul, MulAssign},
 };
+//use ff::Field;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -231,12 +232,25 @@ impl<G: Group> CommitmentEngineExtTrait<G> for CommitmentEngine<G>
 
     #[tracing::instrument(skip_all, name = "CommitmentEngine::fold")]
     fn fold(ck: &Self::CommitmentKey, w1: &G::Scalar, w2: &G::Scalar) -> Self::CommitmentKey {
+        //let w = vec![*w1, *w2];
         let (L, R) = Self::split_at(ck, ck.ck.len() / 2);
 
         let ck = (0..ck.ck.len() / 2)
             .into_par_iter()
-            .map(|i| (G::scalar_mul(&L.ck[i], w1) + G::scalar_mul(&R.ck[i], w2)).preprocessed())
+            .map(|i| {
+                let res = G::scalar_mul(&L.ck[i], w1) + G::scalar_mul(&R.ck[i], w2);
+                res.preprocessed()
+            })
             .collect();
+        /*
+          let ck = (0..ck.ck.len() / 2)
+          .into_par_iter()
+          .map(|i| {
+            let bases = [L.ck[i].clone(), R.ck[i].clone()].to_vec();
+            G::vartime_multiscalar_mul(&w, &bases).preprocessed()
+          })
+          .collect();
+        */
 
         Self::CommitmentKey { ck }
     }

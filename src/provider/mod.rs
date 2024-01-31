@@ -128,6 +128,15 @@ macro_rules! impl_traits {
                 $name::Point::identity()
             }
 
+            /// Returns an element that is the additive identity of the group
+            fn zero_affine() -> Self::PreprocessedGroupElement {
+                $name::Affine::identity()
+            }
+
+            fn generator_affine() -> Self::PreprocessedGroupElement {
+                $name::Affine::generator()
+            }
+
             fn get_generator() -> Self {
                 $name::Point::generator()
             }
