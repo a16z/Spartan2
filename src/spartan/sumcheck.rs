@@ -213,13 +213,20 @@ impl<G: Group> SumcheckProof<G> {
       .into_par_iter()
       .map(|i| {
         // eval 0: bound_func is A(low)
-        let eval_point_0 = comb_func(&poly_A[i], &poly_B[i], &poly_C[i], &poly_D[i]);
+        let low = i;
+        let high = len + i;
+
+        let eval_point_0 = comb_func(&poly_A[low], &poly_B[low], &poly_C[low], &poly_D[low]);
 
         // eval 2: bound_func is -A(low) + 2*A(high)
-        let poly_A_bound_point = poly_A[len + i] + poly_A[len + i] - poly_A[i];
-        let poly_B_bound_point = poly_B[len + i] + poly_B[len + i] - poly_B[i];
-        let poly_C_bound_point = poly_C[len + i] + poly_C[len + i] - poly_C[i];
-        let poly_D_bound_point = poly_D[len + i] + poly_D[len + i] - poly_D[i];
+        let A_m = poly_A[high] - poly_A[low];
+        let B_m = poly_B[high] - poly_B[low];
+        let C_m = poly_C[high] - poly_C[low];
+        let D_m = poly_D[high] - poly_D[low];
+        let poly_A_bound_point = poly_A[high] + A_m;
+        let poly_B_bound_point = poly_B[high] + B_m;
+        let poly_C_bound_point = poly_C[high] + C_m;
+        let poly_D_bound_point = poly_D[high] + D_m;
         let eval_point_2 = comb_func(
           &poly_A_bound_point,
           &poly_B_bound_point,
@@ -228,10 +235,10 @@ impl<G: Group> SumcheckProof<G> {
         );
 
         // eval 3: bound_func is -2A(low) + 3A(high); computed incrementally with bound_func applied to eval(2)
-        let poly_A_bound_point = poly_A_bound_point + poly_A[len + i] - poly_A[i];
-        let poly_B_bound_point = poly_B_bound_point + poly_B[len + i] - poly_B[i];
-        let poly_C_bound_point = poly_C_bound_point + poly_C[len + i] - poly_C[i];
-        let poly_D_bound_point = poly_D_bound_point + poly_D[len + i] - poly_D[i];
+        let poly_A_bound_point = poly_A_bound_point + A_m;
+        let poly_B_bound_point = poly_B_bound_point + B_m;
+        let poly_C_bound_point = poly_C_bound_point + C_m;
+        let poly_D_bound_point = poly_D_bound_point + D_m;
         let eval_point_3 = comb_func(
           &poly_A_bound_point,
           &poly_B_bound_point,
@@ -291,10 +298,10 @@ impl<G: Group> SumcheckProof<G> {
       claim_per_round = poly.evaluate(&r_i);
 
       // bound all tables to the verifier's challenege
-      poly_A.bound_poly_var_top(&r_i);
-      poly_B.bound_poly_var_top(&r_i);
-      poly_C.bound_poly_var_top(&r_i);
-      poly_D.bound_poly_var_top(&r_i);
+      let mut polys = [&mut *poly_A, &mut *poly_B, &mut *poly_C, &mut *poly_D];
+      polys.par_iter_mut().for_each(|poly| {
+        poly.bound_poly_var_top(&r_i);
+      });
     }
 
     Ok((
