@@ -251,8 +251,7 @@ impl<G: Group> R1CSShape<G> {
       return Err(SpartanError::InvalidWitnessLength);
     }
     
-    // First, pre-process self to get a list pointers Vec<usize> 
-    // to the start of each row in the matrix
+    // Pre-processes matrix to return the indices of the start of each row
     let get_row_pointers = |M: &Vec<(usize, usize, G::Scalar)>| -> Vec<usize> {
       let mut indptr = vec![0; self.num_cons + 1];
       for &(row, _, _) in M {
@@ -264,17 +263,15 @@ impl<G: Group> R1CSShape<G> {
       indptr
     };
 
+    // Multiplies one constraint (row from small M) and its uniform copies with the vector z
     let multiply_row_vec_uniform = |R: &[(usize, usize, G::Scalar)], z: &[G::Scalar], N: usize| -> Vec<G::Scalar> {
+      // returns the N rows of the output corresponding to the original row R in M
       let mut result = vec![G::Scalar::ZERO; N];
       for &(_, col, val) in R {
         if col == self.num_vars {
-          for i in 0..N {
-              result[i] += val; // z[num_vars] is always 1 
-          }
+            result.par_iter_mut().for_each(|x| *x += val);
         } else {
-          for i in 0..N {
-              result[i] += val * z[col * N + i]; // Arasu: double-check the col * N formula
-          }
+            result.par_iter_mut().enumerate().for_each(|(i, x)| *x += val * z[col * N + i]);
         }
       }
       result
