@@ -84,7 +84,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> VerifierKey<G, EE> {
 pub struct UniformProverKey<G: Group, EE: EvaluationEngineTrait<G>> {
   ck: CommitmentKey<G>,
   pk_ee: EE::ProverKey,
-  S_single: R1CSShape<G>, 
+  S: R1CSShape<G>, // Single step shape
   num_cons_total: usize, // Number of constraints
   num_vars_total: usize, // Number of variables
   num_steps: usize, // Number of steps
@@ -97,8 +97,9 @@ pub struct UniformProverKey<G: Group, EE: EvaluationEngineTrait<G>> {
 #[serde(bound = "")]
 pub struct UniformVerifierKey<G: Group, EE: EvaluationEngineTrait<G>> {
   vk_ee: EE::VerifierKey,
-  S: R1CSShape<G>, // The full shape
   S_single: R1CSShape<G>, // A single step's shape
+  num_cons_total: usize, // Number of constraints
+  num_vars_total: usize, // Number of variables
   num_steps: usize, // Number of steps
   #[serde(skip, default = "OnceCell::new")]
   digest: OnceCell<G::Scalar>,
@@ -107,12 +108,13 @@ pub struct UniformVerifierKey<G: Group, EE: EvaluationEngineTrait<G>> {
 impl<G: Group, EE: EvaluationEngineTrait<G>> SimpleDigestible for UniformVerifierKey<G, EE> {}
 
 impl<G: Group, EE: EvaluationEngineTrait<G>> UniformVerifierKey<G, EE> {
-  fn new(shape: R1CSShape<G>, vk_ee: EE::VerifierKey, shape_single: R1CSShape<G>, num_steps: usize) -> Self {
+  fn new(vk_ee: EE::VerifierKey, shape_single: R1CSShape<G>, num_steps: usize, num_cons_total: usize, num_vars_total: usize) -> Self {
     UniformVerifierKey {
       vk_ee,
-      S: shape,
       S_single: shape_single,
       num_steps: num_steps,
+      num_cons_total: num_cons_total,
+      num_vars_total: num_vars_total,
       digest: OnceCell::new(),
     }
   }
@@ -160,13 +162,13 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(S.clone(), vk_ee, S.clone(), 1);
+    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S.clone(), 1, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
       pk_ee,
-      S_single: S,
-      num_steps: 0,
+      S,
+      num_steps: 1,
       num_cons_total,
       num_vars_total,
       vk_digest: vk.digest(),
@@ -397,7 +399,15 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
   fn verify(&self, vk: &Self::VerifierKey, io: &[G::Scalar]) -> Result<(), SpartanError> {
     // construct an instance using the provided commitment to the witness and IO
     let comm_W = Commitment::<G>::decompress(&self.comm_W)?;
-    let u = R1CSInstance::new(&vk.S, &comm_W, io)?;
+    let hollow_S = R1CSShape::<G> {
+      num_cons: vk.num_cons_total,
+      num_vars: vk.num_vars_total,
+      num_io: 0,
+      A: vec![],
+      B: vec![],
+      C: vec![],
+    };
+    let u = R1CSInstance::new(&hollow_S, &comm_W, io)?;
 
     let mut transcript = G::TE::new(b"R1CSSNARK");
 
@@ -406,8 +416,8 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     transcript.absorb(b"U", &u);
 
     let (num_rounds_x, num_rounds_y) = (
-      usize::try_from(vk.S.num_cons.ilog2()).unwrap(),
-      (usize::try_from(vk.S.num_vars.ilog2()).unwrap() + 1),
+      usize::try_from(vk.num_cons_total.ilog2()).unwrap(),
+      (usize::try_from(vk.num_vars_total.ilog2()).unwrap() + 1),
     );
 
     // outer sum-check
@@ -460,24 +470,60 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
             .map(|i| (i + 1, u.X[i]))
             .collect::<Vec<(usize, G::Scalar)>>(),
         );
-        SparsePolynomial::new(usize::try_from(vk.S.num_vars.ilog2()).unwrap(), poly_X)
+        SparsePolynomial::new(usize::try_from(vk.num_vars_total.ilog2()).unwrap(), poly_X)
           .evaluate(&r_y[1..])
       };
       (G::Scalar::ONE - r_y[0]) * self.eval_W + r_y[0] * eval_X
     };
 
+    // // compute evaluations of R1CS matrices
+    // let multi_evaluate = |M_vec: &[&[(usize, usize, G::Scalar)]],
+    //                       r_x: &[G::Scalar],
+    //                       r_y: &[G::Scalar]|
+    //  -> Vec<G::Scalar> {
+    //   let evaluate_with_table =
+    //     |M: &[(usize, usize, G::Scalar)], T_x: &[G::Scalar], T_y: &[G::Scalar]| -> G::Scalar {
+    //       (0..M.len())
+    //         .into_par_iter()
+    //         .map(|i| {
+    //           let (row, col, val) = M[i];
+    //           T_x[row] * T_y[col] * val
+    //         })
+    //         .sum()
+    //     };
+
+    //   let (T_x, T_y) = rayon::join(
+    //     || EqPolynomial::new(r_x.to_vec()).evals(),
+    //     || EqPolynomial::new(r_y.to_vec()).evals(),
+    //   );
+
+    //   (0..M_vec.len())
+    //     .into_par_iter()
+    //     .map(|i| evaluate_with_table(M_vec[i], &T_x, &T_y))
+    //     .collect()
+    // };
+
     // compute evaluations of R1CS matrices
-    let multi_evaluate = |M_vec: &[&[(usize, usize, G::Scalar)]],
+    let multi_evaluate_uniform = |M_vec: &[&[(usize, usize, G::Scalar)]],
                           r_x: &[G::Scalar],
-                          r_y: &[G::Scalar]|
+                          r_y: &[G::Scalar], 
+                          num_steps: usize,|
      -> Vec<G::Scalar> {
-      let evaluate_with_table =
-        |M: &[(usize, usize, G::Scalar)], T_x: &[G::Scalar], T_y: &[G::Scalar]| -> G::Scalar {
+      let evaluate_with_table_uniform =
+        |M: &[(usize, usize, G::Scalar)], T_x: &[G::Scalar], T_y: &[G::Scalar], num_steps: usize| -> G::Scalar {
           (0..M.len())
             .into_par_iter()
             .map(|i| {
               let (row, col, val) = M[i];
-              T_x[row] * T_y[col] * val
+              (0..num_steps).into_par_iter().map(|j| {
+                let row = row * num_steps + j;
+                // let col = col * num_steps + j;
+                let col = if col != vk.S_single.num_vars { col * num_steps + j } else { vk.num_vars_total }; 
+                let val = val * T_x[row] * T_y[col];
+                val
+              })
+              .sum::<G::Scalar>()
+              //T_x[row] * T_y[col] * val
             })
             .sum()
         };
@@ -489,11 +535,12 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
       (0..M_vec.len())
         .into_par_iter()
-        .map(|i| evaluate_with_table(M_vec[i], &T_x, &T_y))
+        .map(|i| evaluate_with_table_uniform(M_vec[i], &T_x, &T_y, num_steps))
         .collect()
     };
+    
 
-    let evals = multi_evaluate(&[&vk.S.A, &vk.S.B, &vk.S.C], &r_x, &r_y);
+    let evals = multi_evaluate_uniform(&[&vk.S_single.A, &vk.S_single.B, &vk.S_single.C], &r_x, &r_y, vk.num_steps);
 
     let claim_inner_final_expected = (evals[0] + r * evals[1] + r * r * evals[2]) * eval_Z;
     if claim_inner_final != claim_inner_final_expected {
@@ -523,11 +570,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformSNARKTrait<G> for R1CSSNARK<
     let mut cs: ShapeCS<G> = ShapeCS::new();
     let _ = circuit.synthesize(&mut cs);
     // let (S, S_single, ck) = cs.r1cs_shape_uniform(num_steps);
-    let (S, S_single, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps);
+    let (S_single, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps);
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(S.clone(), vk_ee, S_single.clone(), num_steps);
+    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S_single.clone(), num_steps, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
@@ -552,11 +599,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
   ) -> Result<(UniformProverKey<G, EE>, UniformVerifierKey<G, EE>), SpartanError> {
     let mut cs: ShapeCS<G> = ShapeCS::new();
     let _ = circuit.synthesize(&mut cs);
-    let (S, S_single, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform_variablewise(num_steps); // TODO(arasuarun): replace with precommitted version
+    let (S_single, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps); // TODO(arasuarun): replace with precommitted version
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(S, vk_ee, S_single.clone(), num_steps);
+    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S_single.clone(), num_steps, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
