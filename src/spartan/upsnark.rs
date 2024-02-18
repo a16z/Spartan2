@@ -231,7 +231,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     // poly_Az is the polynomial extended from the vector Az 
     let (mut poly_Az, mut poly_Bz, mut poly_Cz) = {
       // let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec(&z)?;
-      let (poly_Az, poly_Bz, poly_Cz) = pk.S_single.multiply_vec_uniform(&z, pk.num_steps)?;
+      let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec_uniform(&z, pk.num_steps)?;
       (
         MultilinearPolynomial::new(poly_Az),
         MultilinearPolynomial::new(poly_Bz),
@@ -289,7 +289,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
           let inner = |small_M: &Vec<(usize, usize, G::Scalar)>| -> Vec<G::Scalar> {
             // 1. Evaluate \tilde smallM(r_x, y) for all y 
-            let mut small_M_evals = vec![G::Scalar::ZERO; pk.S_single.num_vars + 1];
+            let mut small_M_evals = vec![G::Scalar::ZERO; pk.S.num_vars + 1];
             for (row, col, val) in small_M.iter() {
               small_M_evals[*col] += eq_rx_con[*row] * val;
             }
@@ -306,7 +306,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
             // 3. Handles the constant 1 variable 
             let constant_sum: G::Scalar = small_M.iter()
-              .filter(|(_, col, _)| *col == pk.S_single.num_vars)   // expecting ~1
+              .filter(|(_, col, _)| *col == pk.S.num_vars)   // expecting ~1
               .map(|(row, _, val)| {
                   let eq_sum = (0..N_STEPS).into_par_iter().map(|t| eq_rx_ts[t]).sum::<G::Scalar>();
                   *val * eq_rx_con[*row] * eq_sum
@@ -329,7 +329,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
       // evals_A is the vector of evaluations of A(r_x, y) for all y
       // The summation of this should be claims_A right? 
-      let (evals_A, evals_B, evals_C) = compute_eval_table_sparse_uniform(&pk.S_single, pk.num_steps, &eq_rx_con, &eq_rx_ts);
+      let (evals_A, evals_B, evals_C) = compute_eval_table_sparse_uniform(&pk.S, pk.num_steps, &eq_rx_con, &eq_rx_ts);
 
       assert_eq!(evals_A.len(), evals_B.len());
       assert_eq!(evals_A.len(), evals_C.len());
@@ -569,17 +569,16 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformSNARKTrait<G> for R1CSSNARK<
   ) -> Result<(UniformProverKey<G, EE>, UniformVerifierKey<G, EE>), SpartanError> {
     let mut cs: ShapeCS<G> = ShapeCS::new();
     let _ = circuit.synthesize(&mut cs);
-    // let (S, S_single, ck) = cs.r1cs_shape_uniform(num_steps);
-    let (S_single, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps);
+    let (S, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps);
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S_single.clone(), num_steps, num_cons_total, num_vars_total);
+    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S.clone(), num_steps, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
       pk_ee,
-      S_single, 
+      S, 
       num_steps, 
       num_cons_total,
       num_vars_total,
@@ -599,16 +598,16 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
   ) -> Result<(UniformProverKey<G, EE>, UniformVerifierKey<G, EE>), SpartanError> {
     let mut cs: ShapeCS<G> = ShapeCS::new();
     let _ = circuit.synthesize(&mut cs);
-    let (S_single, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps); // TODO(arasuarun): replace with precommitted version
+    let (S, ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps); // TODO(arasuarun): replace with precommitted version
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S_single.clone(), num_steps, num_cons_total, num_vars_total);
+    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S.clone(), num_steps, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
       pk_ee,
-      S_single: S_single,
+      S,
       num_steps, 
       num_cons_total,
       num_vars_total,
