@@ -96,7 +96,7 @@ impl_spartan_shape!(TestShapeCS);
 
 impl<G: Group> ShapeCS<G> {
   /// r1cs_shape but with extrpolates from one step of a uniform computation 
-  pub fn r1cs_shape_uniform(&self, N: usize) -> (R1CSShape<G>, R1CSShape<G>, CommitmentKey<G>) {
+  pub fn r1cs_shape_uniform(&self, N: usize) -> (R1CSShape<G>, R1CSShape<G>, CommitmentKey<G>, usize, usize) {
     let S_single = self.r1cs_shape().0;
 
     let mut A: Vec<(usize, usize, G::Scalar)> = Vec::new();
@@ -143,11 +143,11 @@ impl<G: Group> ShapeCS<G> {
 
     let ck = R1CS::<G>::commitment_key(&S);
 
-    (S, S_single, ck) 
+    (S.clone(), S_single, ck, S.num_cons, S.num_vars) 
   }
 
   /// r1cs_shape but with extrpolates from one step of a uniform computation 
-  pub fn r1cs_shape_uniform_variablewise(&self, N: usize) -> (R1CSShape<G>, R1CSShape<G>, CommitmentKey<G>) {
+  pub fn r1cs_shape_uniform_variablewise(&self, N: usize) -> (R1CSShape<G>, R1CSShape<G>, CommitmentKey<G>, usize, usize) {
     let S_single = self.r1cs_shape().0;
 
     let mut A: Vec<(usize, usize, G::Scalar)> = Vec::new();
@@ -167,7 +167,7 @@ impl<G: Group> ShapeCS<G> {
     let span = tracing::span!(tracing::Level::INFO, "r1cs matrix creation");
     let _guard = span.enter();
     for constraint in self.constraints.iter() {
-      add_constraint_uniform_variablewise(
+      _add_constraint_uniform_variablewise(
         &mut X,
         num_aux_total,
         &constraint.0,
@@ -205,10 +205,28 @@ impl<G: Group> ShapeCS<G> {
       res.unwrap()
     };
 
+    // let ck = R1CS::<G>::commitment_key(&S);
 
-    let ck = R1CS::<G>::commitment_key(&S);
+    use core::cmp::max;
+    use crate::traits::commitment::CommitmentEngineTrait;
+    let m = max(num_constraints_total, num_aux_total).next_power_of_two();
+    let ck = G::CE::setup(b"ck", m); 
+    println!("m is {}", m);
+    println!("S.num_cons is {}", S.num_cons);
+    println!("numconstraints is {}", num_constraints_total);
+    println!("S.num_vars is {}", S.num_vars);
+    // let S = R1CSShape::<G> {
+    //   num_cons: m,
+    //   num_vars: m,
+    //   num_io: num_inputs - 1,
+    //   A: [].to_vec(),
+    //   B: [].to_vec(),
+    //   C: [].to_vec(),
+    // };
 
-    (S, S_single, ck) 
+
+    // (S_single, ck, num_constraints_total, num_aux_total) 
+    (S, S_single, ck, m, m) 
   }
 }
 
@@ -311,7 +329,7 @@ fn add_constraint_uniform<S: PrimeField>(
   **nn += num_steps;
 }
 
-fn add_constraint_uniform_variablewise<S: PrimeField>(
+fn _add_constraint_uniform_variablewise<S: PrimeField>(
   X: &mut (
     &mut Vec<(usize, usize, S)>,
     &mut Vec<(usize, usize, S)>,
