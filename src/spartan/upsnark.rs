@@ -183,7 +183,9 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     let mut cs: SatisfyingAssignment<G> = SatisfyingAssignment::new();
     let _ = circuit.synthesize(&mut cs);
 
-    // Commits to witness (expensive)
+    // Create a hollow shape with the right dimensions but no matrices. 
+    // This is a convenience to work with Spartan's r1cs_instance_and_witness function 
+    // and other padding functions without changing their signature. 
     let hollow_S = R1CSShape::<G> {
       num_cons: pk.num_cons_total,
       num_vars: pk.num_vars_total,
@@ -192,8 +194,9 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       B: vec![],
       C: vec![],
     };
+
+    // Commits to witness (expensive)
     let (u, w) = cs
-      // .r1cs_instance_and_witness(&pk.S, &pk.ck)
       .r1cs_instance_and_witness(&hollow_S, &pk.ck)
       .map_err(|_e| SpartanError::UnSat)?;
 
@@ -201,9 +204,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     let _guard = non_commitment_span.enter();
 
     // form a padded version of the witness, W, for use in polynomial commitment later 
-    let mut W = w.clone(); 
-    W.W.extend(vec![G::Scalar::ZERO; pk.num_vars_total - W.W.len()]);
+    let W = w.clone(); 
+    // TODO(arasuarun): check if padding is ever required below 
+    // W.W.extend(vec![G::Scalar::ZERO; pk.num_vars_total - W.W.len()]);
     // let W = w.pad(&pk.S); // pad the witness
+
     let mut transcript = G::TE::new(b"R1CSSNARK");
 
     // sanity check that R1CSShape has certain size characteristics
@@ -230,7 +235,6 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     let mut poly_tau = MultilinearPolynomial::new(EqPolynomial::new(tau).evals());
     // poly_Az is the polynomial extended from the vector Az 
     let (mut poly_Az, mut poly_Bz, mut poly_Cz) = {
-      // let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec(&z)?;
       let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec_uniform(&z, pk.num_steps)?;
       (
         MultilinearPolynomial::new(poly_Az),
@@ -399,6 +403,9 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
   fn verify(&self, vk: &Self::VerifierKey, io: &[G::Scalar]) -> Result<(), SpartanError> {
     // construct an instance using the provided commitment to the witness and IO
     let comm_W = Commitment::<G>::decompress(&self.comm_W)?;
+
+    // This object has the shape dimensions but no matrices. 
+    // A convenience to work with Spartan's functions without changing their signature. 
     let hollow_S = R1CSShape::<G> {
       num_cons: vk.num_cons_total,
       num_vars: vk.num_vars_total,
@@ -476,33 +483,6 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       (G::Scalar::ONE - r_y[0]) * self.eval_W + r_y[0] * eval_X
     };
 
-    // // compute evaluations of R1CS matrices
-    // let multi_evaluate = |M_vec: &[&[(usize, usize, G::Scalar)]],
-    //                       r_x: &[G::Scalar],
-    //                       r_y: &[G::Scalar]|
-    //  -> Vec<G::Scalar> {
-    //   let evaluate_with_table =
-    //     |M: &[(usize, usize, G::Scalar)], T_x: &[G::Scalar], T_y: &[G::Scalar]| -> G::Scalar {
-    //       (0..M.len())
-    //         .into_par_iter()
-    //         .map(|i| {
-    //           let (row, col, val) = M[i];
-    //           T_x[row] * T_y[col] * val
-    //         })
-    //         .sum()
-    //     };
-
-    //   let (T_x, T_y) = rayon::join(
-    //     || EqPolynomial::new(r_x.to_vec()).evals(),
-    //     || EqPolynomial::new(r_y.to_vec()).evals(),
-    //   );
-
-    //   (0..M_vec.len())
-    //     .into_par_iter()
-    //     .map(|i| evaluate_with_table(M_vec[i], &T_x, &T_y))
-    //     .collect()
-    // };
-
     // compute evaluations of R1CS matrices
     let multi_evaluate_uniform = |M_vec: &[&[(usize, usize, G::Scalar)]],
                           r_x: &[G::Scalar],
@@ -517,13 +497,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
               let (row, col, val) = M[i];
               (0..num_steps).into_par_iter().map(|j| {
                 let row = row * num_steps + j;
-                // let col = col * num_steps + j;
                 let col = if col != vk.S_single.num_vars { col * num_steps + j } else { vk.num_vars_total }; 
                 let val = val * T_x[row] * T_y[col];
                 val
               })
               .sum::<G::Scalar>()
-              //T_x[row] * T_y[col] * val
             })
             .sum()
         };

@@ -103,13 +103,9 @@ impl<G: Group> ShapeCS<G> {
   pub fn r1cs_shape_uniform(&self, N: usize) -> (R1CSShape<G>, CommitmentKey<G>, usize, usize) {
     let S_single = self.r1cs_shape().0;
 
-    // HACK(arasuarun): assuming this is = 1 (just the constant)
-    let _num_inputs = self.num_inputs();
-    let num_constraints_per_step = self.num_constraints();
-    let num_aux_per_step= self.num_aux(); // Arasu: this doesn't include the 1
-
-    let num_aux_total = num_aux_per_step * N;
-    let num_constraints_total = num_constraints_per_step * N;
+    // HACK(arasuarun): assuming num_inputs is = 1 (just the constant)
+    let num_constraints_total = S_single.num_cons * N;
+    let num_aux_total = S_single.num_vars * N;
 
     // // Add IO consistency constraints 
     // // TODO(arasuarun): Hack. Make this a parameter instead. 
@@ -189,7 +185,7 @@ fn _add_constraint_uniform<S: PrimeField>(
   num_steps: usize, 
 ) {
   let (A, B, C, nn) = X;
-  let n = **nn; // Arasu: this is just the row number, I think 
+  let n = **nn; 
   let one = S::ONE;
 
   let add_constraint_component = |index: Index, coeff, V: &mut Vec<_>| {
