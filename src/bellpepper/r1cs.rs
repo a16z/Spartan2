@@ -145,12 +145,7 @@ impl<G: Group> ShapeCS<G> {
   pub fn r1cs_shape_uniform(&self, N: usize) -> (R1CSShape<G>, CommitmentKey<G>, usize, usize) {
     let S_single = self.r1cs_shape_single_step().pad_vars();
 
-<<<<<<< HEAD
     // HACK(arasuarun): assuming num_inputs is = 1 (just the constant)
-=======
-    // HACK(arasuarun): assuming this is = 1 (just the constant)
-    let _num_inputs = self.num_inputs();
->>>>>>> e0b9a82 (pad single step S's cols but not rows)
     let num_constraints_total = S_single.num_cons * N;
     let num_aux_total = S_single.num_vars * N;
 
