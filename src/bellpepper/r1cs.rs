@@ -120,12 +120,6 @@ impl<G: Group> ShapeCS<G> {
 
     assert_eq!(num_cons_added, num_constraints);
 
-    // let S: R1CSShape<G> = {
-    //   // Don't count One as an input for shape's purposes.
-    //   let res = R1CSShape::new(num_constraints, num_vars, num_inputs - 1, &A, &B, &C);
-    //   res.unwrap()
-    // };
-
     let S = R1CSShape::<G> {
       num_cons: num_constraints,
       num_vars: num_vars,
@@ -145,22 +139,9 @@ impl<G: Group> ShapeCS<G> {
   pub fn r1cs_shape_uniform(&self, N: usize) -> (R1CSShape<G>, CommitmentKey<G>, usize, usize) {
     let S_single = self.r1cs_shape_single_step().pad_vars();
 
-    // HACK(arasuarun): assuming num_inputs is = 1 (just the constant)
+    // TODO(arasuarun): assuming num_inputs is = 1 (just the constant)
     let num_constraints_total = S_single.num_cons * N;
     let num_aux_total = S_single.num_vars * N;
-
-    // // Add IO consistency constraints 
-    // // TODO(arasuarun): Hack. Make this a parameter instead. 
-    // let STATE_LEN = 2; 
-    // use ff::Field; 
-    // for i in 0..STATE_LEN {
-    //   for step in 0..(N-1) {
-    //     A.push((num_constraints_total + step, num_aux_total, G::Scalar::ONE));
-    //     B.push((num_constraints_total + step, i * N + step, G::Scalar::ONE)); // output of step i
-    //     C.push((num_constraints_total + step, (STATE_LEN + i) * N + step + 1, G::Scalar::ONE)); // input of step I+1
-    //   }
-    //   num_constraints_total += N-1; 
-    // }
 
     let pad_num_constraints = num_constraints_total.next_power_of_two();
     let pad_num_aux = num_aux_total.next_power_of_two();
