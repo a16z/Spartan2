@@ -275,6 +275,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
     let span = tracing::span!(tracing::Level::TRACE, "poly_ABC");
     let _enter = span.enter();
+
     // this is the polynomial extended from the vector r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
     let poly_ABC = {
       let NUM_STEPS_BITS = pk.num_steps.trailing_zeros();
@@ -284,6 +285,9 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
       let N_STEPS = pk.num_steps;
 
+      // With uniformity, each entry of the RLC of A, B, C can be expressed using 
+      // the RLC of the small_A, small_B, small_C matrices.
+
       // 1. Evaluate \tilde smallM(r_x, y) for all y 
       let compute_eval_table_sparse_single= |small_M: &Vec<(usize, usize, G::Scalar)>| -> Vec<G::Scalar> {
         let mut small_M_evals = vec![G::Scalar::ZERO; pk.S.num_vars + 1];
@@ -291,18 +295,6 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
           small_M_evals[*col] += eq_rx_con[*row] * val;
         }
         small_M_evals
-      };
-
-      // 3. Handles the constant 1 variable 
-      let compute_eval_constant_column = |small_M: &Vec<(usize, usize, G::Scalar)>| -> G::Scalar {
-        let constant_sum: G::Scalar = small_M.iter()
-          .filter(|(_, col, _)| *col == pk.S.num_vars)   // expecting ~1
-          .map(|(row, _, val)| {
-              let eq_sum = (0..N_STEPS).into_par_iter().map(|t| eq_rx_ts[t]).sum::<G::Scalar>();
-              *val * eq_rx_con[*row] * eq_sum
-          }).sum();
-
-        constant_sum 
       };
 
       let (small_A_evals, (small_B_evals, small_C_evals)) = rayon::join(
@@ -324,90 +316,29 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       let next_pow_2 = 2 * pk.num_vars_total;
       RLC_evals.resize(next_pow_2, G::Scalar::ZERO);
 
-      let constant_term_A = compute_eval_constant_column(&pk.S.A);
-      let constant_term_B = compute_eval_constant_column(&pk.S.B);
-      let constant_term_C = compute_eval_constant_column(&pk.S.C);
+      // 3. Handles the constant 1 variable 
+      let compute_eval_constant_column = |small_M: &Vec<(usize, usize, G::Scalar)>| -> G::Scalar {
+        let constant_sum: G::Scalar = small_M.iter()
+          .filter(|(_, col, _)| *col == pk.S.num_vars)   // expecting ~1
+          .map(|(row, _, val)| {
+              let eq_sum = (0..N_STEPS).into_par_iter().map(|t| eq_rx_ts[t]).sum::<G::Scalar>();
+              *val * eq_rx_con[*row] * eq_sum
+          }).sum();
+
+        constant_sum 
+      };
+
+      let (constant_term_A, (constant_term_B, constant_term_C)) = rayon::join(
+        || compute_eval_constant_column(&pk.S.A),
+        || rayon::join(
+            || compute_eval_constant_column(&pk.S.B),
+            || compute_eval_constant_column(&pk.S.C),
+        ),
+      );
 
       RLC_evals[pk.num_vars_total] = constant_term_A + r * constant_term_B + r * r * constant_term_C;
 
       RLC_evals
-
-      // // 3. Handles the constant 1 variable 
-      // let constant_sum: G::Scalar = small_M.iter()
-      //   .filter(|(_, col, _)| *col == pk.S.num_vars)   // expecting ~1
-      //   .map(|(row, _, val)| {
-      //       let eq_sum = (0..N_STEPS).into_par_iter().map(|t| eq_rx_ts[t]).sum::<G::Scalar>();
-      //       *val * eq_rx_con[*row] * eq_sum
-      //   }).sum();
-      // M_evals[pk.num_vars_total] = constant_sum;
-
-
-      // // Bounds "row" variables of full (A, B, C) matrices 
-      // // viewed as 2d multilinear polynomials
-      // // built using the single_step (A, B, C) matrices 
-      // let compute_eval_table_sparse_uniform =
-      //   |S_single: &R1CSShape<G>, N_STEPS: usize, eq_rx_con: &[G::Scalar], eq_rx_ts: &[G::Scalar]| -> (Vec<G::Scalar>, Vec<G::Scalar>, Vec<G::Scalar>) {
-      //     let span = tracing::span!(tracing::Level::TRACE, "compute_eval_table_sparse_uniform");
-      //     let _guard = span.enter();
-      //     assert_eq!(eq_rx_con.len().ilog2() + eq_rx_ts.len().ilog2(), pk.num_cons_total.ilog2());
-
-      //     let inner = |small_M: &Vec<(usize, usize, G::Scalar)>| -> Vec<G::Scalar> {
-      //       // 1. Evaluate \tilde smallM(r_x, y) for all y 
-      //       let small_M_evals = compute_eval_table_sparse_single(small_M);
-
-      //       // 2. Handles all entries but the last one with the constant 1 variable
-      //       let span_m_evals = tracing::span!(tracing::Level::TRACE, "M_evals_computation");
-      //       let _enter_m_evals = span_m_evals.enter();
-      //       let mut M_evals: Vec<G::Scalar> = (0..pk.num_vars_total).into_par_iter().map(|col| {
-      //         eq_rx_ts[col % N_STEPS] * small_M_evals[col / N_STEPS]
-      //       }).collect();
-      //       let next_pow_2 = 2 * pk.num_vars_total;
-      //       M_evals.resize(next_pow_2, G::Scalar::ZERO);
-      //       drop(_enter_m_evals);
-
-      //       // 3. Handles the constant 1 variable 
-      //       let constant_sum: G::Scalar = small_M.iter()
-      //         .filter(|(_, col, _)| *col == pk.S.num_vars)   // expecting ~1
-      //         .map(|(row, _, val)| {
-      //             let eq_sum = (0..N_STEPS).into_par_iter().map(|t| eq_rx_ts[t]).sum::<G::Scalar>();
-      //             *val * eq_rx_con[*row] * eq_sum
-      //         }).sum();
-      //       M_evals[pk.num_vars_total] = constant_sum;
-
-      //       M_evals
-      //     };
-
-      //     let (A_evals, (B_evals, C_evals)) = rayon::join(
-      //       || inner(&S_single.A),
-      //       || rayon::join(
-      //         || inner(&S_single.B),
-      //         || inner(&S_single.C),
-      //       ),
-      //     ); 
-
-      //     (A_evals, B_evals, C_evals)
-      //   };
-
-      // // evals_A is the vector of evaluations of A(r_x, y) for all y
-      // // The summation of this should be claims_A right? 
-      // let (evals_A, evals_B, evals_C) = compute_eval_table_sparse_uniform(&pk.S, pk.num_steps, &eq_rx_con, &eq_rx_ts);
-
-      // assert_eq!(evals_A.len(), evals_B.len());
-      // assert_eq!(evals_A.len(), evals_C.len());
-
-      // let span_e = tracing::span!(tracing::Level::TRACE, "eval_combo_old");
-      // let _enter_e = span_e.enter();
-      // let r_sq = r * r;
-      // let thing = (0..evals_A.len())
-      //   .into_par_iter()
-      //   .map(|i| {
-      //     evals_A[i] + evals_B[i] * r + evals_C[i] * r_sq
-      //   })
-      //   .collect::<Vec<G::Scalar>>();
-      // drop(_enter_e);
-      // drop(span_e);
-
-      // thing
     };
     drop(_enter);
     drop(span);
