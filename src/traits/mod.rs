@@ -76,6 +76,13 @@ pub trait Group:
     max_num_bits: usize,
   ) -> Self;
 
+  /// An MSM implementation optimized for small-ish (max_num_bits <= 64) scalar values
+  fn msm_u64_wnaf(
+    bases: &[Self::PreprocessedGroupElement],
+    scalars: &[u64],
+    max_num_bits: usize,
+  ) -> Self;
+
   /// Compresses the group element
   fn compress(&self) -> Self::CompressedGroupElement;
 

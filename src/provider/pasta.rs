@@ -93,6 +93,14 @@ macro_rules! impl_traits {
         unimplemented!()
       }
 
+      fn msm_u64_wnaf(
+        _bases: &[Self::PreprocessedGroupElement],
+        _scalars: &[u64],
+        _max_num_bits: usize,
+      ) -> Self {
+        unimplemented!()
+      }
+
       fn preprocessed(&self) -> Self::PreprocessedGroupElement {
         self.to_affine()
       }
