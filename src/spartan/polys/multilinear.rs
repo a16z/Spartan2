@@ -5,9 +5,12 @@
 use std::ops::{Add, Index};
 
 use ff::PrimeField;
-use rayon::prelude::{
-  IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-  IntoParallelRefMutIterator, ParallelIterator,
+use rayon::{
+  prelude::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IntoParallelRefMutIterator, ParallelIterator,
+  },
+  slice::ParallelSlice,
 };
 use serde::{Deserialize, Serialize};
 
@@ -137,19 +140,23 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
   /// Bounds the polynomial's top variables using the given scalars.
   #[tracing::instrument(skip_all, name = "MultilinearPolynomial::bound")]
   pub fn bound(&self, L: &[Scalar]) -> Vec<Scalar> {
-    let (left_num_vars, right_num_vars) =
+    let (_left_num_vars, right_num_vars) =
       EqPolynomial::<Scalar>::compute_factored_lens(self.num_vars);
-    let L_size = (2_usize).pow(left_num_vars as u32);
     let R_size = (2_usize).pow(right_num_vars as u32);
 
-    (0..R_size)
-      .into_par_iter()
-      .map(|i| {
-        (0..L_size)
-          .map(|j| L[j] * self.Z[j * R_size + i])
-          .fold(Scalar::ZERO, |x, y| x + y)
-      })
-      .collect()
+    self
+      .Z
+      .par_chunks(R_size)
+      .enumerate()
+      // TODO(moodlezoup): optimize for 0/1
+      .map(|(i, row)| row.iter().map(|x| L[i] * x).collect::<Vec<Scalar>>())
+      .reduce(
+        || vec![Scalar::ZERO; R_size],
+        |mut acc: Vec<_>, row| {
+          acc.iter_mut().zip(row).for_each(|(x, y)| *x += y);
+          acc
+        },
+      )
   }
 }
 
