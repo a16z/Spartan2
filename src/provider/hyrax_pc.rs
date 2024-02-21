@@ -230,11 +230,10 @@ impl<G: Group> CommitmentEngineTrait<G> for HyraxCommitmentEngine<G> {
     HyraxCommitmentKey { ck }
   }
 
+  #[tracing::instrument(skip_all, name = "Hyrax::commit")]
   fn commit(ck: &Self::CommitmentKey, v: &[G::Scalar]) -> Self::Commitment {
-    let poly = MultilinearPolynomial::new(v.to_vec());
-    let n = poly.len();
-    let ell = poly.get_num_vars();
-    assert_eq!(n, (2usize).pow(ell as u32));
+    let n = v.len();
+    let ell: usize = usize::try_from(v.len().ilog2()).unwrap();
 
     let (left_num_vars, right_num_vars) = EqPolynomial::<G::Scalar>::compute_factored_lens(ell);
     let L_size = (2usize).pow(left_num_vars as u32);
@@ -242,11 +241,8 @@ impl<G: Group> CommitmentEngineTrait<G> for HyraxCommitmentEngine<G> {
     assert_eq!(L_size * R_size, n);
 
     let comm = (0..L_size)
-      .collect::<Vec<usize>>()
       .into_par_iter()
-      .map(|i| {
-        PedersenCommitmentEngine::commit(&ck.ck, &poly.get_Z()[R_size * i..R_size * (i + 1)])
-      })
+      .map(|i| PedersenCommitmentEngine::commit(&ck.ck, &v[R_size * i..R_size * (i + 1)]))
       .collect();
 
     HyraxCommitment {

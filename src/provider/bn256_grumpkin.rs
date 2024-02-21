@@ -5,7 +5,7 @@ use crate::{
   traits::{CompressedGroup, Group, PrimeFieldExt, TranscriptReprTrait},
 };
 use digest::{ExtendableOutput, Update};
-use ff::{FromUniformBytes, PrimeField};
+use ff::{FromUniformBytes, PrimeField, PrimeFieldBits};
 use group::{cofactor::CofactorCurveAffine, Curve, Group as AnotherGroup, GroupEncoding};
 use num_bigint::BigInt;
 use num_traits::Num;
