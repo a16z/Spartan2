@@ -2,7 +2,6 @@
 #![allow(clippy::too_many_arguments)]
 use crate::{
   errors::SpartanError,
-  provider::ipa_pc::{InnerProductArgument, InnerProductInstance, InnerProductWitness},
   provider::pedersen::{
     Commitment as PedersenCommitment, CommitmentEngine as PedersenCommitmentEngine,
     CommitmentEngineExtTrait, CommitmentKey as PedersenCommitmentKey,
@@ -284,23 +283,15 @@ impl<G: Group> TranscriptReprTrait<G> for HyraxCompressedCommitment<G> {
 /// Provides an implementation of the hyrax key
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct HyraxProverKey<G: Group> {
-  ck_s: CommitmentKey<G>,
-}
-
-/// Provides an implementation of the hyrax key
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "")]
 pub struct HyraxVerifierKey<G: Group> {
   ck_v: CommitmentKey<G>,
-  ck_s: CommitmentKey<G>,
 }
 
 /// Provides an implementation of a polynomial evaluation argument
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct HyraxEvaluationArgument<G: Group> {
-  ipa: InnerProductArgument<G>,
+  LZ: Vec<G::Scalar>,
 }
 
 /// Provides an implementation of a polynomial evaluation engine using Hyrax PC
@@ -315,7 +306,7 @@ where
   G: Group<CE = HyraxCommitmentEngine<G>>,
 {
   type CE = G::CE;
-  type ProverKey = HyraxProverKey<G>;
+  type ProverKey = ();
   type VerifierKey = HyraxVerifierKey<G>;
   type EvaluationArgument = HyraxEvaluationArgument<G>;
 
@@ -323,20 +314,11 @@ where
   fn setup(
     ck: &<<G as Group>::CE as CommitmentEngineTrait<G>>::CommitmentKey,
   ) -> (Self::ProverKey, Self::VerifierKey) {
-    let span = tracing::span!(tracing::Level::INFO, "hyrax PK");
-    let _guard = span.enter();
-    let pk = HyraxProverKey::<G> {
-      ck_s: G::CE::setup(b"hyrax", 1),
-    };
-    drop(_guard);
-    drop(span);
+    let pk = ();
 
     let span = tracing::span!(tracing::Level::INFO, "hyrax VK");
     let _guard = span.enter();
-    let vk = HyraxVerifierKey::<G> {
-      ck_v: ck.clone(),
-      ck_s: G::CE::setup(b"hyrax", 1),
-    };
+    let vk = HyraxVerifierKey::<G> { ck_v: ck.clone() };
     drop(_guard);
     drop(span);
 
@@ -345,13 +327,13 @@ where
 
   #[tracing::instrument(skip_all, name = "HyraxEvaluationEngine::prove")]
   fn prove(
-    ck: &CommitmentKey<G>,
-    pk: &Self::ProverKey,
+    _ck: &CommitmentKey<G>,
+    _pk: &Self::ProverKey,
     transcript: &mut G::TE,
     comm: &Commitment<G>,
     poly: &[G::Scalar],
     point: &[G::Scalar],
-    eval: &G::Scalar,
+    _eval: &G::Scalar,
   ) -> Result<Self::EvaluationArgument, SpartanError> {
     transcript.absorb(b"poly_com", comm);
 
@@ -380,21 +362,7 @@ where
     // compute vector-matrix product between L and Z viewed as a matrix
     let LZ = poly_m.bound(&L);
 
-    // Commit to LZ
-    let com_LZ = PedersenCommitmentEngine::commit(&ck.ck, &LZ);
-
-    // a dot product argument (IPA) of size R_size
-    let ipa_instance = InnerProductInstance::<G>::new(&com_LZ, &R, eval);
-    let ipa_witness = InnerProductWitness::<G>::new(&LZ);
-    let ipa = InnerProductArgument::<G>::prove(
-      &ck.ck,
-      &pk.ck_s.ck,
-      &ipa_instance,
-      &ipa_witness,
-      transcript,
-    )?;
-
-    Ok(HyraxEvaluationArgument { ipa })
+    Ok(HyraxEvaluationArgument { LZ })
   }
 
   fn verify(
@@ -413,13 +381,22 @@ where
 
     // compute a weighted sum of commitments and L
     let ck = PedersenCommitmentEngine::reinterpret_commitments_as_ck(&comm.comm);
+    // Verifier-derived commitment to u * a = \prod Com(u_j)^{a_j}
+    let com_LZ_homomorphic = PedersenCommitmentEngine::commit(&ck, &L); // computes MSM of commitment and L
 
-    let com_LZ = PedersenCommitmentEngine::commit(&ck, &L); // computes MSM of commitment and L
+    let com_LZ = PedersenCommitmentEngine::commit(&vk.ck_v.ck, &arg.LZ);
 
-    let ipa_instance = InnerProductInstance::<G>::new(&com_LZ, &R, eval);
+    let LZ_dot_R: G::Scalar = arg
+      .LZ
+      .par_iter()
+      .zip(R.par_iter())
+      .map(|(lz, r)| *lz * r)
+      .sum();
 
-    arg
-      .ipa
-      .verify(&vk.ck_v.ck, &vk.ck_s.ck, R.len(), &ipa_instance, transcript)
+    if (com_LZ_homomorphic == com_LZ) && (LZ_dot_R == *eval) {
+      Ok(())
+    } else {
+      Err(SpartanError::ProofVerifyError)
+    }
   }
 }
