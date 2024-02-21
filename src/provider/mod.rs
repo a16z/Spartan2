@@ -38,7 +38,73 @@ macro_rules! impl_traits {
         scalars: &[Self::Scalar],
         bases: &[Self::PreprocessedGroupElement],
       ) -> Self {
-        best_multiexp(scalars, bases)
+        let max_num_bits = scalars
+          .par_iter()
+          .map(|s| {
+            let le_bits = s.to_le_bits();
+            le_bits.len() - le_bits.trailing_zeros()
+          })
+          .max()
+          .unwrap();
+
+        match max_num_bits {
+          0 => Self::zero(),
+          1 => {
+            let scalars_u64: Vec<_> = scalars
+              .iter()
+              .map(|scalar| {
+                let limbs: [u64; 4] = (*scalar).into();
+                limbs[0]
+              })
+              .collect();
+            Self::msm_binary(bases, &scalars_u64)
+          }
+          2..=10 => {
+            let scalars_u64: Vec<_> = scalars
+              .iter()
+              .map(|scalar| {
+                let limbs: [u64; 4] = (*scalar).into();
+                limbs[0]
+              })
+              .collect();
+            Self::msm_small(bases, &scalars_u64, max_num_bits)
+          }
+          _ => best_multiexp(scalars, bases),
+        }
+      }
+
+      fn msm_binary(bases: &[Self::PreprocessedGroupElement], scalars: &[u64]) -> Self {
+        scalars
+          .iter()
+          .zip(bases)
+          .filter(|(&scalar, _base)| scalar != 0)
+          .map(|(_scalar, base)| base)
+          .fold(Self::zero(), |sum, base| sum + base)
+      }
+
+      fn msm_small(
+        bases: &[Self::PreprocessedGroupElement],
+        scalars: &[u64],
+        max_num_bits: usize,
+      ) -> Self {
+        let num_buckets: usize = 1 << max_num_bits;
+        // Assign things to buckets based on the scalar
+        let mut buckets: Vec<Self> = vec![Self::zero(); num_buckets];
+        scalars
+          .iter()
+          .zip(bases)
+          .filter(|(&scalar, _base)| scalar != 0)
+          .for_each(|(&scalar, base)| {
+            buckets[scalar as usize] += base;
+          });
+
+        let mut result = Self::zero();
+        let mut running_sum = Self::zero();
+        buckets.iter().skip(1).rev().for_each(|bucket| {
+          running_sum += bucket;
+          result += running_sum;
+        });
+        result
       }
 
       fn preprocessed(&self) -> Self::PreprocessedGroupElement {

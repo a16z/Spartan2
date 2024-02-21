@@ -5,7 +5,7 @@ use crate::{
   traits::{CompressedGroup, Group, PrimeFieldExt, TranscriptReprTrait},
 };
 use digest::{ExtendableOutput, Update};
-use ff::{FromUniformBytes, PrimeField};
+use ff::{FromUniformBytes, PrimeField, PrimeFieldBits};
 use group::{cofactor::CofactorCurveAffine, Curve, Group as AnotherGroup, GroupEncoding};
 use halo2curves::msm::best_multiexp;
 use halo2curves::secp256k1::{Secp256k1, Secp256k1Affine, Secp256k1Compressed};

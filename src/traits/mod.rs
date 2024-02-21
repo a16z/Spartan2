@@ -66,6 +66,16 @@ pub trait Group:
     bases: &[Self::PreprocessedGroupElement],
   ) -> Self;
 
+  /// An MSM implementation optimized for boolean scalar values
+  fn msm_binary(bases: &[Self::PreprocessedGroupElement], scalars: &[u64]) -> Self;
+
+  /// An MSM implementation optimized for small (1 < max_num_bits < 64) scalar values
+  fn msm_small(
+    bases: &[Self::PreprocessedGroupElement],
+    scalars: &[u64],
+    max_num_bits: usize,
+  ) -> Self;
+
   /// Compresses the group element
   fn compress(&self) -> Self::CompressedGroupElement;
 
@@ -174,4 +184,4 @@ impl<G: Group, T: TranscriptReprTrait<G>> TranscriptReprTrait<G> for &[T] {
 
 pub mod evaluation;
 pub mod snark;
-pub mod upsnark; 
+pub mod upsnark;

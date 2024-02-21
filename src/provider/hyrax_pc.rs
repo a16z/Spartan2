@@ -226,16 +226,15 @@ impl<G: Group> CommitmentEngineTrait<G> for HyraxCommitmentEngine<G> {
     let span = tracing::span!(tracing::Level::INFO, "sampling generators");
     let _guard = span.enter();
     let ck = PedersenCommitmentEngine::setup(label, (2usize).pow(right as u32));
-    drop(_guard); 
-    drop(span); 
+    drop(_guard);
+    drop(span);
     HyraxCommitmentKey { ck }
   }
 
+  #[tracing::instrument(skip_all, name = "Hyrax::commit")]
   fn commit(ck: &Self::CommitmentKey, v: &[G::Scalar]) -> Self::Commitment {
-    let poly = MultilinearPolynomial::new(v.to_vec());
-    let n = poly.len();
-    let ell = poly.get_num_vars();
-    assert_eq!(n, (2usize).pow(ell as u32));
+    let n = v.len();
+    let ell: usize = usize::try_from(v.len().ilog2()).unwrap();
 
     let (left_num_vars, right_num_vars) = EqPolynomial::<G::Scalar>::compute_factored_lens(ell);
     let L_size = (2usize).pow(left_num_vars as u32);
@@ -243,11 +242,8 @@ impl<G: Group> CommitmentEngineTrait<G> for HyraxCommitmentEngine<G> {
     assert_eq!(L_size * R_size, n);
 
     let comm = (0..L_size)
-      .collect::<Vec<usize>>()
       .into_par_iter()
-      .map(|i| {
-        PedersenCommitmentEngine::commit(&ck.ck, &poly.get_Z()[R_size * i..R_size * (i + 1)])
-      })
+      .map(|i| PedersenCommitmentEngine::commit(&ck.ck, &v[R_size * i..R_size * (i + 1)]))
       .collect();
 
     HyraxCommitment {
@@ -332,8 +328,8 @@ where
     let pk = HyraxProverKey::<G> {
       ck_s: G::CE::setup(b"hyrax", 1),
     };
-    drop(_guard); 
-    drop(span); 
+    drop(_guard);
+    drop(span);
 
     let span = tracing::span!(tracing::Level::INFO, "hyrax VK");
     let _guard = span.enter();
@@ -341,8 +337,8 @@ where
       ck_v: ck.clone(),
       ck_s: G::CE::setup(b"hyrax", 1),
     };
-    drop(_guard); 
-    drop(span); 
+    drop(_guard);
+    drop(span);
 
     (pk, vk)
   }
@@ -362,8 +358,8 @@ where
     let span = tracing::span!(tracing::Level::INFO, "poly_m_construct");
     let _guard = span.enter();
     let poly_m = MultilinearPolynomial::<G::Scalar>::new(poly.to_vec());
-    drop(_guard); 
-    drop(span); 
+    drop(_guard);
+    drop(span);
 
     // assert vectors are of the right size
     assert_eq!(poly_m.get_num_vars(), point.len());
