@@ -16,6 +16,7 @@ mod bellpepper;
 mod constants;
 mod digest;
 mod r1cs;
+mod utils;
 
 // public modules
 pub mod errors;

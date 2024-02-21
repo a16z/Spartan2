@@ -1,9 +1,7 @@
 //! This module defines R1CS related types and a folding scheme for Relaxed R1CS
 #![allow(clippy::type_complexity)]
 use crate::{
-  errors::SpartanError,
-  traits::{commitment::CommitmentEngineTrait, Group, TranscriptReprTrait},
-  Commitment, CommitmentKey, CE,
+  errors::SpartanError, traits::{commitment::CommitmentEngineTrait, Group, TranscriptReprTrait}, utils::mul_0_1_optimized, Commitment, CommitmentKey, CE
 };
 use core::{cmp::max, marker::PhantomData};
 use ff::Field;
@@ -269,7 +267,7 @@ impl<G: Group> R1CSShape<G> {
         if col == self.num_vars {
           result.par_iter_mut().for_each(|x| *x += val);
         } else {
-          result.par_iter_mut().enumerate().for_each(|(i, x)| *x += val * z[col * num_steps + i]);
+          result.par_iter_mut().enumerate().for_each(|(i, x)| *x += mul_0_1_optimized(&val, &z[col * num_steps + i]));
         }
       }
     };
