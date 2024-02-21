@@ -297,8 +297,6 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
         small_M_evals
       };
 
-      let compute_span = tracing::span!(tracing::Level::TRACE, "compute_eval_table_sparse_single");
-      let guard = compute_span.enter();
       let (small_A_evals, (small_B_evals, small_C_evals)) = rayon::join(
         || compute_eval_table_sparse_single(&pk.S.A),
         || rayon::join(
@@ -306,30 +304,17 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
             || compute_eval_table_sparse_single(&pk.S.C),
         ),
       );
-      drop(guard);
 
       let small_RLC_evals = (0..small_A_evals.len()).into_par_iter().map(|i| {
         small_A_evals[i] + small_B_evals[i] * r + small_C_evals[i] * r * r
       }).collect::<Vec<G::Scalar>>();
 
       // 2. Handles all entries but the last one with the constant 1 variable
-      let compute_span = tracing::span!(tracing::Level::TRACE, "RLC_evals");
-      let guard = compute_span.enter();
       let mut RLC_evals: Vec<G::Scalar> = (0..pk.num_vars_total).into_par_iter().map(|col| {
-        let v = small_RLC_evals[col / N_STEPS];
-        if v == G::Scalar::ZERO {
-          G::Scalar::ZERO
-        } else if v == G::Scalar::ONE {
-          eq_rx_ts[col % N_STEPS]
-        } else {
-          eq_rx_ts[col % N_STEPS] * v
-        }
+        eq_rx_ts[col % N_STEPS] * small_RLC_evals[col / N_STEPS]
       }).collect();
       let next_pow_2 = 2 * pk.num_vars_total;
       RLC_evals.resize(next_pow_2, G::Scalar::ZERO);
-      drop(guard);
-      println!("num_vars {}", pk.S.num_vars);
-      println!("num_vars_total {}", pk.num_vars_total);
 
       // 3. Handles the constant 1 variable 
       let compute_eval_constant_column = |small_M: &Vec<(usize, usize, G::Scalar)>| -> G::Scalar {
@@ -343,8 +328,6 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
         constant_sum 
       };
 
-      let compute_span = tracing::span!(tracing::Level::TRACE, "compute_constant_column");
-      let guard = compute_span.enter();
       let (constant_term_A, (constant_term_B, constant_term_C)) = rayon::join(
         || compute_eval_constant_column(&pk.S.A),
         || rayon::join(
@@ -352,7 +335,6 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
             || compute_eval_constant_column(&pk.S.C),
         ),
       );
-      drop(guard);
 
       RLC_evals[pk.num_vars_total] = constant_term_A + r * constant_term_B + r * r * constant_term_C;
 
