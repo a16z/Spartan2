@@ -65,3 +65,8 @@ asm = ["halo2curves/asm"]
 # Compiles in portable mode, w/o ISA extensions => binary can be executed on all systems.
 portable = ["pasta-msm/portable"]
 flamegraph = ["pprof/flamegraph", "pprof/criterion"]
+
+[profile.release]
+debug = 1
+codegen-units = 1
+lto = "fat"

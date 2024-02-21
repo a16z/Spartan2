@@ -382,7 +382,10 @@ where
 
     // compute the vector underneath L*Z
     // compute vector-matrix product between L and Z viewed as a matrix
-    let LZ = poly_m.bound(&L);
+    // TODO(sragss): poly_m could just get bound as a &poly, this is just computing the dot product with L
+    // TODO(sragss): Z is 78% zeros and 1% ones.
+    // TODO(sragss): Reduces hyrax time by >50%
+    let LZ = poly_m.bound_many_zeros(&L);
 
     // Commit to LZ
     let com_LZ = PedersenCommitmentEngine::commit(&ck.ck, &LZ);

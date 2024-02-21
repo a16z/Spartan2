@@ -73,6 +73,18 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
 
     let (left, right) = self.Z.split_at_mut(n);
 
+    let zero_density_left = left.iter().filter(|&&x| x == Scalar::ZERO).count() as f64 / left.len() as f64;
+    let one_density_left = left.iter().filter(|&&x| x == Scalar::ONE).count() as f64 / left.len() as f64;
+    let zero_density_right = right.iter().filter(|&&x| x == Scalar::ZERO).count() as f64 / right.len() as f64;
+    let one_density_right = right.iter().filter(|&&x| x == Scalar::ONE).count() as f64 / right.len() as f64;
+    println!("ml::bound_poly_var_top({})", n);
+    println!("r: {r:?}");
+    println!("Density of Scalar::ZERO in left: {}", zero_density_left);
+    println!("Density of Scalar::ONE in left: {}", one_density_left);
+    println!("Density of Scalar::ZERO in right: {}", zero_density_right);
+    println!("Density of Scalar::ONE in right: {}", one_density_right);
+    println!("===============");
+
     left
       .par_iter_mut()
       .zip(right.par_iter())
@@ -83,6 +95,42 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
     self.Z.resize(n, Scalar::ZERO);
     self.num_vars -= 1;
   }
+
+  /// Bounds the polynomial's top variable using the given scalar.
+  ///
+  /// This operation modifies the polynomial in-place.
+  #[tracing::instrument(skip_all, name = "MultilinearPolynomial::bound_poly_var_top_many_zeros")]
+  pub fn bound_poly_var_top_many_zeros(&mut self, r: &Scalar) {
+    let n = self.len() / 2;
+
+    let (left, right) = self.Z.split_at_mut(n);
+
+    // let zero_density_left = left.iter().filter(|&&x| x == Scalar::ZERO).count() as f64 / left.len() as f64;
+    // let one_density_left = left.iter().filter(|&&x| x == Scalar::ONE).count() as f64 / left.len() as f64;
+    // let zero_density_right = right.iter().filter(|&&x| x == Scalar::ZERO).count() as f64 / right.len() as f64;
+    // let one_density_right = right.iter().filter(|&&x| x == Scalar::ONE).count() as f64 / right.len() as f64;
+    // println!("ml::bound_poly_var_top_many_zeros({})", n);
+    // println!("r: {r:?}");
+    // println!("Density of Scalar::ZERO in left: {}", zero_density_left);
+    // println!("Density of Scalar::ONE in left: {}", one_density_left);
+    // println!("Density of Scalar::ZERO in right: {}", zero_density_right);
+    // println!("Density of Scalar::ONE in right: {}", one_density_right);
+    // println!("===============");
+
+    left
+      .par_iter_mut()
+      .zip(right.par_iter())
+      .for_each(|(a, b)| {
+        if !(*a == Scalar::ZERO && *b == Scalar::ZERO) {
+          *a += *r * (*b - *a);
+        }
+      });
+
+    // TODO(sragss): This pruning is likely expensive, could avoid until the end.
+    self.Z.truncate(n);
+    self.num_vars -= 1;
+  }
+
 
   /// Evaluates the polynomial at the given point.
   /// Returns Z(r) in O(n) time.
@@ -103,10 +151,12 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
 
   /// Evaluates the polynomial with the given evaluations and point.
   pub fn evaluate_with(Z: &[Scalar], r: &[Scalar]) -> Scalar {
+    println!("MultilinearPolynomial::evaluate_with on r: {}", r.len());
     EqPolynomial::new(r.to_vec())
       .evals()
       .into_par_iter()
       .zip(Z.into_par_iter())
+      .filter(|&(_, b)| *b != Scalar::ZERO)
       .map(|(a, b)| a * b)
       .sum()
   }
@@ -150,6 +200,33 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
           .fold(Scalar::ZERO, |x, y| x + y)
       })
       .collect()
+  }
+
+  /// Bounds the polynomial's top variables using the given scalars.
+  #[tracing::instrument(skip_all, name = "MultilinearPolynomial::bound_many_zeros")]
+  pub fn bound_many_zeros(&self, L: &[Scalar]) -> Vec<Scalar> {
+    let (left_num_vars, right_num_vars) =
+      EqPolynomial::<Scalar>::compute_factored_lens(self.num_vars);
+    let L_size = (2_usize).pow(left_num_vars as u32);
+    let R_size = (2_usize).pow(right_num_vars as u32);
+
+    // let zero_count_L = L.iter().filter(|&&x| x == Scalar::ZERO).count();
+    // let one_count_L = L.iter().filter(|&&x| x == Scalar::ONE).count();
+    // let zero_count_Z = self.Z.iter().filter(|&&x| x == Scalar::ZERO).count();
+    // let one_count_Z = self.Z.iter().filter(|&&x| x == Scalar::ONE).count();
+    // let total_L = L.len();
+    // let total_Z = self.Z.len();
+    // println!("Density in L - Zeros: {} ({}%), Ones: {} ({}%)", zero_count_L, (zero_count_L as f64 / total_L as f64 * 100.0), one_count_L, (one_count_L as f64 / total_L as f64 * 100.0));
+    // println!("Density in Z - Zeros: {} ({}%), Ones: {} ({}%)", zero_count_Z, (zero_count_Z as f64 / total_Z as f64 * 100.0), one_count_Z, (one_count_Z as f64 / total_Z as f64 * 100.0));
+
+    (0..R_size)
+      .into_par_iter()
+      .map(|i| {
+        (0..L_size)
+          .filter(|&j| L[j] != Scalar::ZERO && self.Z[j * R_size + i] != Scalar::ZERO)
+          .map(|j| L[j] * self.Z[j * R_size + i])
+          .fold(Scalar::ZERO, |x, y| x + y)
+      }).collect()
   }
 }
 

@@ -208,6 +208,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       .map(|_i| transcript.squeeze(b"t"))
       .collect::<Result<Vec<G::Scalar>, SpartanError>>()?;
 
+    println!("Creating poly_tau (eq) with num_vars {}", tau.len());
     let mut poly_tau = MultilinearPolynomial::new(EqPolynomial::new(tau).evals());
     // poly_Az is the polynomial extended from the vector Az 
     let (mut poly_Az, mut poly_Bz, mut poly_Cz) = {
@@ -224,7 +225,18 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
        poly_B_comp: &G::Scalar,
        poly_C_comp: &G::Scalar,
        poly_D_comp: &G::Scalar|
-       -> G::Scalar { *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) };
+       -> G::Scalar { 
+        if *poly_B_comp == G::Scalar::ZERO || *poly_C_comp == G::Scalar::ZERO {
+          if *poly_D_comp == G::Scalar::ZERO {
+            G::Scalar::ZERO
+          } else {
+            *poly_A_comp * ( - (*poly_D_comp))
+          }
+        } else {
+          *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) 
+        }
+      };
+    println!("\n\n\n=======SumcheckProof::prove_cubic_with_additive_term=======\n\n\n");
     let (sc_proof_outer, r_x, claims_outer) = SumcheckProof::prove_cubic_with_additive_term(
       &G::Scalar::ZERO, // claim is zero
       num_rounds_x,
@@ -273,12 +285,24 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
             for (row, col, val) in small_M.iter() {
               small_M_evals[*col] += eq_rx_con[*row] * val;
             }
+            let zero_count = small_M_evals.iter().filter(|&&val| val == G::Scalar::ZERO).count();
+            let one_count = small_M_evals.iter().filter(|&&val| val == G::Scalar::ONE).count();
+            let total_count = small_M_evals.len();
+            let zero_percentage = (zero_count as f64 / total_count as f64) * 100.0;
+            let one_percentage = (one_count as f64 / total_count as f64) * 100.0;
+            println!("Number of G::Scalar::ZERO: {} ({}%)", zero_count, zero_percentage);
+            println!("Number of G::Scalar::ONE: {} ({}%)", one_count, one_percentage);
 
             // 2. Handles all entries but the last one with the constant 1 variable
+            // TODO(sragss): Should handle this through legit sparsity
             let span_m_evals = tracing::span!(tracing::Level::TRACE, "M_evals_computation");
             let _enter_m_evals = span_m_evals.enter();
             let mut M_evals: Vec<G::Scalar> = (0..pk.S.num_vars).into_par_iter().map(|col| {
-              eq_rx_ts[col % N_STEPS] * small_M_evals[col / N_STEPS]
+              if small_M_evals[col / N_STEPS] == G::Scalar::ZERO {
+                  G::Scalar::ZERO
+              } else {
+                  eq_rx_ts[col % N_STEPS] * small_M_evals[col / N_STEPS]
+              }
             }).collect();
             let next_pow_2 = 2 * pk.S.num_vars;
             M_evals.resize(next_pow_2, G::Scalar::ZERO);
@@ -309,6 +333,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
       // evals_A is the vector of evaluations of A(r_x, y) for all y
       // The summation of this should be claims_A right? 
+      println!("\n\n\n\n======compute_eval_table_sparse_uniform======");
       let (evals_A, evals_B, evals_C) = compute_eval_table_sparse_uniform(&pk.S_single, pk.num_steps, &eq_rx_con, &eq_rx_ts);
 
       assert_eq!(evals_A.len(), evals_B.len());
@@ -320,46 +345,76 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       let thing = (0..evals_A.len())
         .into_par_iter()
         .map(|i| {
-          evals_A[i] + evals_B[i] * r + evals_C[i] * r_sq
+          // elaborate form of: evals_A[i] + evals_B[i] * r + evals_C[i] * r_sq
+          let mut sum = evals_A[i];
+          if evals_B[i] != G::Scalar::ZERO {
+            sum += evals_B[i] * r;
+          } 
+          if evals_C[i] != G::Scalar::ZERO {
+            sum += evals_C[i] * r_sq;
+          }
+          sum
         })
         .collect::<Vec<G::Scalar>>();
       drop(_enter_e);
       drop(span_e);
+
+      // h/t https://abrams.cc/rust-dropping-things-in-another-thread
+      std::thread::spawn(move || drop(evals_A));
+      std::thread::spawn(move || drop(evals_B));
+      std::thread::spawn(move || drop(evals_C));
 
       thing
     };
     drop(_enter);
     drop(span);
 
-    let poly_z = {
-      z.resize(pk.S.num_vars * 2, G::Scalar::ZERO);
-      z
-    };
+    let span_resize = tracing::span!(tracing::Level::TRACE, "resize_poly_z");
+    let _enter_resize = span_resize.enter();
+    z.resize(pk.S.num_vars * 2, G::Scalar::ZERO);
+    drop(_enter_resize);
 
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
-      *poly_A_comp * *poly_B_comp
+      if *poly_A_comp == G::Scalar::ZERO || *poly_B_comp == G::Scalar::ZERO {
+          G::Scalar::ZERO
+      } else {
+          *poly_A_comp * *poly_B_comp
+      }
     };
+    let mut abc = MultilinearPolynomial::new(poly_ABC);
+    let mut z_1 = MultilinearPolynomial::new(z);
+    println!("\n\n\n\n======SumcheckProof::prove_quad======");
     let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
       num_rounds_y,
-      &mut MultilinearPolynomial::new(poly_ABC), // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
-      &mut MultilinearPolynomial::new(poly_z), // z(y) for all y
+      &mut abc, // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
+      &mut z_1, // z(y) for all y
       comb_func,
       &mut transcript,
     )?;
 
+    let span_dropping_polys = tracing::span!(tracing::Level::TRACE, "dropping_polys");
+    let _enter_dropping_polys = span_dropping_polys.enter();
+    std::thread::spawn(move || drop(abc));
+    std::thread::spawn(move || drop(z_1));
+    drop(_enter_dropping_polys);
+
+    println!("\n\n\n\n======MultilinearPolynomial::evaluate_with======");
     let span = tracing::span!(tracing::Level::TRACE, "MultilinearPolynomial::evaluate_with");
     let _enter = span.enter();
     let eval_W = MultilinearPolynomial::evaluate_with(&W.W, &r_y[1..]);
     drop(_enter);
     drop(span);
 
+    // TODO(sragss): We should be able to just hand over u.comm_W rather than passing a reference
+    // then cloning it.
+    println!("\n\n\n\n======EE::prove======");
     let eval_arg = EE::prove(
       &pk.ck,
       &pk.pk_ee,
       &mut transcript,
       &u.comm_W,
-      &W.W.clone(),
+      &W.W,
       &r_y[1..].to_vec(),
       &eval_W,
     )?;
@@ -375,7 +430,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
   }
 
   /// verifies a proof of satisfiability of a `RelaxedR1CS` instance
-  #[tracing::instrument(skip_all, name = "SNARK::verify")]
+  #[tracing::instrument(skip_all, name = "Spartan2::UPSnark::verify")]
   fn verify(&self, vk: &Self::VerifierKey, io: &[G::Scalar]) -> Result<(), SpartanError> {
     // construct an instance using the provided commitment to the witness and IO
     let comm_W = Commitment::<G>::decompress(&self.comm_W)?;

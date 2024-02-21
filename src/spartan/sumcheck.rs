@@ -128,7 +128,10 @@ impl<G: Group> SumcheckProof<G> {
       claim_per_round = poly.evaluate(&r_i);
 
       // bound all tables to the verifier's challenege
-      rayon::join(|| poly_A.bound_poly_var_top(&r_i), || poly_B.bound_poly_var_top(&r_i));
+      let span = tracing::span!(tracing::Level::TRACE, "bound_poly_var_top");
+      let _enter = span.enter();
+      rayon::join(|| poly_A.bound_poly_var_top_many_zeros(&r_i), || poly_B.bound_poly_var_top_many_zeros(&r_i));
+      drop(_enter);
     }
 
     Ok((
@@ -291,16 +294,19 @@ impl<G: Group> SumcheckProof<G> {
       claim_per_round = poly.evaluate(&r_i);
 
       // bound all tables to the verifier's challenege
+      let bound_poly_var_top_span = tracing::span!(tracing::Level::INFO, "bound_poly_var_top");
+      let _guard = bound_poly_var_top_span.enter();
       rayon::join(
         || poly_A.bound_poly_var_top(&r_i),
         || rayon::join(
-          || poly_B.bound_poly_var_top(&r_i),
+          || poly_B.bound_poly_var_top_many_zeros(&r_i),
           || rayon::join(
-            || poly_C.bound_poly_var_top(&r_i),
-            || poly_D.bound_poly_var_top(&r_i),
+            || poly_C.bound_poly_var_top_many_zeros(&r_i),
+            || poly_D.bound_poly_var_top_many_zeros(&r_i),
           ),
         ),
       );
+      drop(_guard);
     }
 
     Ok((
