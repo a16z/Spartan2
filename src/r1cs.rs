@@ -281,9 +281,9 @@ impl<G: Group> R1CSShape<G> {
 
         let span = tracing::span!(tracing::Level::TRACE, "sparse_matrix_vec_product_uniform::multiply_row_vecs");
         let _enter = span.enter();
-        result.par_chunks_mut(num_steps).enumerate().for_each(|(step_index, step_output)| {
-              let row = &M[row_pointers[step_index]..row_pointers[step_index + 1]];
-              multiply_row_vec_uniform(row, step_output, num_steps);
+        result.par_chunks_mut(num_steps).enumerate().for_each(|(row_index, row_output)| {
+              let row = &M[row_pointers[row_index]..row_pointers[row_index + 1]];
+              multiply_row_vec_uniform(row, row_output, num_steps);
         });
 
         result 
