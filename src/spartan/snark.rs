@@ -471,7 +471,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for Relaxe
                 &comm_joint,
                 &poly_joint.p,
                 &r_z,
-                &eval_joint,
+                &mut Some(eval_joint),
             )?;
 
         Ok(RelaxedR1CSSNARK {

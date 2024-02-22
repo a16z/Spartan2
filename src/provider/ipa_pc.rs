@@ -72,9 +72,13 @@ where
     comm: &Commitment<G>,
     poly: &[G::Scalar],
     point: &[G::Scalar],
-    eval: &G::Scalar,
+    eval: &mut Option<G::Scalar>,
   ) -> Result<Self::EvaluationArgument, SpartanError> {
-    let u = InnerProductInstance::new(comm, &EqPolynomial::new(point.to_vec()).evals(), eval);
+    let u = InnerProductInstance::new(
+      comm,
+      &EqPolynomial::new(point.to_vec()).evals(),
+      &eval.unwrap(),
+    );
     let w = InnerProductWitness::new(poly);
 
     InnerProductArgument::prove(ck, &pk.ck_s, &u, &w, transcript)
