@@ -1,9 +1,7 @@
 //! This module defines R1CS related types and a folding scheme for Relaxed R1CS
 #![allow(clippy::type_complexity)]
 use crate::{
-  errors::SpartanError,
-  traits::{commitment::CommitmentEngineTrait, Group, TranscriptReprTrait},
-  Commitment, CommitmentKey, CE,
+  errors::SpartanError, traits::{commitment::CommitmentEngineTrait, Group, TranscriptReprTrait}, utils::mul_0_1_optimized, Commitment, CommitmentKey, CE
 };
 use core::{cmp::max, marker::PhantomData};
 use ff::Field;
@@ -263,49 +261,53 @@ impl<G: Group> R1CSShape<G> {
       indptr
     };
 
-    // Multiplies one constraint (row from small M) and its uniform copies with the vector z
-    let multiply_row_vec_uniform = |R: &[(usize, usize, G::Scalar)], z: &[G::Scalar], N: usize| -> Vec<G::Scalar> {
-      // returns the N rows of the output corresponding to the original row R in M
-      let mut result = vec![G::Scalar::ZERO; N];
+    // Multiplies one constraint (row from small M) and its uniform copies with the vector z into result
+    let multiply_row_vec_uniform = |R: &[(usize, usize, G::Scalar)], result: &mut [G::Scalar], num_steps: usize| {
       for &(_, col, val) in R {
         if col == self.num_vars {
-            result.par_iter_mut().for_each(|x| *x += val);
+          result.par_iter_mut().for_each(|x| *x += val);
         } else {
-            result.par_iter_mut().enumerate().for_each(|(i, x)| *x += val * z[col * N + i]);
+          result.par_iter_mut().enumerate().for_each(|(i, x)| *x += mul_0_1_optimized(&val, &z[col * num_steps + i]));
         }
       }
-      result
     };
 
     // computes a product between a sparse uniform matrix represented by `M` and a vector `z`
     let sparse_matrix_vec_product_uniform =
-      |M: &Vec<(usize, usize, G::Scalar)>, num_rows: usize, z: &[G::Scalar]| -> Vec<G::Scalar> {
+      |M: &Vec<(usize, usize, G::Scalar)>, num_rows: usize| -> Vec<G::Scalar> {
         let row_pointers = get_row_pointers(M);
-        let result: Vec<G::Scalar> = (0..num_rows)
-          .into_par_iter()
-          .flat_map(|i| {
-              let row = &M[row_pointers[i]..row_pointers[i + 1]];
-              multiply_row_vec_uniform(row, z, num_steps)
-          })
-          .collect();
+
+        let mut result: Vec<G::Scalar> = vec![G::Scalar::ZERO; num_steps * num_rows];
+
+        let span = tracing::span!(tracing::Level::TRACE, "sparse_matrix_vec_product_uniform::multiply_row_vecs");
+        let _enter = span.enter();
+        result.par_chunks_mut(num_steps).enumerate().for_each(|(row_index, row_output)| {
+              let row = &M[row_pointers[row_index]..row_pointers[row_index + 1]];
+              multiply_row_vec_uniform(row, row_output, num_steps);
+        });
+
         result 
       };
 
     let (mut Az, (mut Bz, mut Cz)) = rayon::join(
-      || sparse_matrix_vec_product_uniform(&self.A, self.num_cons, z),
+      || sparse_matrix_vec_product_uniform(&self.A, self.num_cons),
       || {
         rayon::join(
-          || sparse_matrix_vec_product_uniform(&self.B, self.num_cons, z),
-          || sparse_matrix_vec_product_uniform(&self.C, self.num_cons, z),
+          || sparse_matrix_vec_product_uniform(&self.B, self.num_cons),
+          || sparse_matrix_vec_product_uniform(&self.C, self.num_cons),
         )
       },
     );
 
     // pad each Az, Bz, Cz to the next power of 2
     let m = max(Az.len(), max(Bz.len(), Cz.len())).next_power_of_two();
-    Az.extend(vec![G::Scalar::ZERO; m - Az.len()]);
-    Bz.extend(vec![G::Scalar::ZERO; m - Bz.len()]);
-    Cz.extend(vec![G::Scalar::ZERO; m - Cz.len()]);
+    rayon::join( 
+      || Az.resize(m, G::Scalar::ZERO),
+      || rayon::join(
+        || Bz.resize(m, G::Scalar::ZERO),
+        || Cz.resize(m, G::Scalar::ZERO)
+      )
+    );
 
     Ok((Az, Bz, Cz))
   }
