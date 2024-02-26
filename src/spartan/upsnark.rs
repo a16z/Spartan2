@@ -360,12 +360,9 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       &mut transcript,
     )?;
 
-    let span = tracing::span!(tracing::Level::TRACE, "MultilinearPolynomial::evaluate_with");
-    let _enter = span.enter();
-    let eval_W = MultilinearPolynomial::evaluate_with(&W.W, &r_y[1..]);
-    drop(_enter);
-    drop(span);
-
+    // Hack: the evaluation is populated in `HyraxEvaluationEngine::prove`
+    // This will not work if `EE`` is not `HyraxEvaluationEngine`.
+    let mut eval_W: Option<G::Scalar> = None;
     let eval_arg = EE::prove(
       &pk.ck,
       &pk.pk_ee,
@@ -373,7 +370,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       &u.comm_W,
       &W.W.clone(),
       &r_y[1..].to_vec(),
-      &eval_W,
+      &mut eval_W,
     )?;
 
     Ok(R1CSSNARK {
@@ -381,7 +378,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       sc_proof_outer,
       claims_outer: (claim_Az, claim_Bz, claim_Cz),
       sc_proof_inner,
-      eval_W,
+      eval_W: eval_W.unwrap(),
       eval_arg,
     })
   }

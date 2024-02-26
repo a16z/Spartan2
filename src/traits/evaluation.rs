@@ -27,6 +27,10 @@ pub trait EvaluationEngineTrait<G: Group>: Clone + Send + Sync {
   ) -> (Self::ProverKey, Self::VerifierKey);
 
   /// A method to prove the evaluation of a multilinear polynomial
+  /// Hack: `eval` is provided as a mutable option because in the case of Hyrax,
+  /// it's more efficient to first compute the opening proof, then compute the 
+  /// actual evaluation from that opening proof. So for `HyraxEvaluationEngine`, we 
+  /// pass in `&mut None`, which gets populated in the body of `prove`.
   fn prove(
     ck: &<<G as Group>::CE as CommitmentEngineTrait<G>>::CommitmentKey,
     pk: &Self::ProverKey,
@@ -34,7 +38,7 @@ pub trait EvaluationEngineTrait<G: Group>: Clone + Send + Sync {
     comm: &<<G as Group>::CE as CommitmentEngineTrait<G>>::Commitment,
     poly: &[G::Scalar],
     point: &[G::Scalar],
-    eval: &G::Scalar,
+    eval: &mut Option<G::Scalar>,
   ) -> Result<Self::EvaluationArgument, SpartanError>;
 
   /// A method to verify the purported evaluation of a multilinear polynomials
