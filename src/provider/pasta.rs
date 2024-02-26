@@ -9,7 +9,6 @@ use halo2curves::msm::best_multiexp;
 use num_bigint::BigInt;
 use num_traits::Num;
 use pasta_curves::{
-  self,
   arithmetic::{CurveAffine, CurveExt},
   group::{cofactor::CofactorCurveAffine, Curve, Group as AnotherGroup, GroupEncoding},
   pallas, vesta, Ep, EpAffine, Eq, EqAffine,

@@ -33,6 +33,7 @@ impl<G: Group> SpartanWitness<G> for SatisfyingAssignment<G>
 where
   G::Scalar: PrimeField,
 {
+  #[tracing::instrument(skip_all)]
   fn r1cs_instance_and_witness(
     &self,
     shape: &R1CSShape<G>,
