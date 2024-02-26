@@ -203,8 +203,14 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     let non_commitment_span = tracing::span!(tracing::Level::INFO, "PostCommitProve");
     let _guard = non_commitment_span.enter();
 
+
     // form a padded version of the witness, W, for use in polynomial commitment later 
-    let W = w.clone(); 
+    let clone_span = tracing::span!(tracing::Level::TRACE, "w.clone");
+    let _clone_enter = clone_span.enter();
+    let W: crate::r1cs::R1CSWitness<G> = w.clone();
+    drop(_clone_enter);
+    drop(clone_span);
+
     // TODO(arasuarun): check if padding is ever required below 
     // W.W.extend(vec![G::Scalar::ZERO; pk.num_vars_total - W.W.len()]);
     // let W = w.pad(&pk.S); // pad the witness
@@ -220,7 +226,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     transcript.absorb(b"U", &u);
 
     // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
+    let concat_span = tracing::span!(tracing::Level::TRACE, "concat");
+    let _concat_enter = concat_span.enter();
     let mut z = [w.W, vec![1.into()], u.X].concat();
+    drop(_concat_enter);
+    drop(concat_span);
 
     let (num_rounds_x, num_rounds_y) = (
       usize::try_from(pk.num_cons_total.ilog2()).unwrap(),
@@ -343,10 +353,15 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     drop(_enter);
     drop(span);
 
+    
+    let resize_span = tracing::span!(tracing::Level::TRACE, "z.resize");
+    let _resize_enter = resize_span.enter();
     let poly_z = {
       z.resize(pk.num_vars_total * 2, G::Scalar::ZERO);
       z
     };
+    drop(_resize_enter);
+    drop(resize_span);
 
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
       *poly_A_comp * *poly_B_comp
@@ -369,7 +384,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       &mut transcript,
       &u.comm_W,
       &W.W,
-      &r_y[1..].to_vec(),
+      &r_y[1..],
       &mut eval_W,
     )?;
 
