@@ -220,7 +220,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     transcript.absorb(b"U", &u);
 
     // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
-    let mut z = [w.W.clone(), vec![1.into()], u.X.clone()].concat();
+    let mut z = [w.W, vec![1.into()], u.X].concat();
 
     let (num_rounds_x, num_rounds_y) = (
       usize::try_from(pk.num_cons_total.ilog2()).unwrap(),
@@ -368,7 +368,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       &pk.pk_ee,
       &mut transcript,
       &u.comm_W,
-      &W.W.clone(),
+      &W.W,
       &r_y[1..].to_vec(),
       &mut eval_W,
     )?;
