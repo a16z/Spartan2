@@ -188,6 +188,10 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
   /// produces a succinct proof of satisfiability of a `RelaxedR1CS` instance
   #[tracing::instrument(skip_all, name = "Spartan2::UPSnark::prove")]
   fn prove<C: Circuit<G::Scalar>>(pk: &Self::ProverKey, circuit: C) -> Result<Self, SpartanError> {
+    // sanity check that R1CSShape has certain size characteristics
+    // TODO(arasuarun): make sure this is enforced during setup
+    // pk.S.check_regular_shape();
+
     let mut cs: SatisfyingAssignment<G> = SatisfyingAssignment::new();
     let _ = circuit.synthesize(&mut cs);
 
@@ -208,18 +212,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       .r1cs_instance_and_witness(&hollow_S, &pk.ck)
       .map_err(|_e| SpartanError::UnSat)?;
 
-    let non_commitment_span = tracing::span!(tracing::Level::INFO, "PostCommitProve");
-    let _guard = non_commitment_span.enter();
-
     // TODO(arasuarun): check if padding is ever required below
-    // W.W.extend(vec![G::Scalar::ZERO; pk.num_vars_total - W.W.len()]);
+    // w.W.extend(vec![G::Scalar::ZERO; pk.num_vars_total - W.W.len()]);
     // let W = w.pad(&pk.S); // pad the witness
 
     let mut transcript = G::TE::new(b"R1CSSNARK");
-
-    // sanity check that R1CSShape has certain size characteristics
-    // TODO(arasuarun): make sure this is enforced during setup
-    // pk.S.check_regular_shape();
 
     // append the digest of vk (which includes R1CS matrices) and the RelaxedR1CSInstance to the transcript
     transcript.absorb(b"vk", &pk.vk_digest);
@@ -350,10 +347,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     };
     drop(_enter);
     drop(span);
+
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
       *poly_A_comp * *poly_B_comp
     };
-    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_fork(
+    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_unrolled(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
       num_rounds_y,
       &mut MultilinearPolynomial::new(poly_ABC), // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y

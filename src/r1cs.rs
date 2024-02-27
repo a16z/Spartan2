@@ -254,6 +254,19 @@ impl<G: Group> R1CSShape<G> {
       return Err(SpartanError::InvalidWitnessLength);
     }
 
+    // Simulates the `z` vector containing the full satisfying assignment
+    //     [W, 1, X]
+    // without actually concatenating W and X, which would be expensive.
+    let virtual_z_vector = |index: usize| {
+      if index < W.len() {
+        W[index]
+      } else if index == W.len() {
+        G::Scalar::ONE
+      } else {
+        X[index - W.len() - 1]
+      }
+    };
+
     // Pre-processes matrix to return the indices of the start of each row
     let get_row_pointers = |M: &Vec<(usize, usize, G::Scalar)>| -> Vec<usize> {
       let mut indptr = vec![0; self.num_cons + 1];
@@ -275,13 +288,7 @@ impl<G: Group> R1CSShape<G> {
           } else {
             result.par_iter_mut().enumerate().for_each(|(i, x)| {
               let z_index = col * num_steps + i;
-              if z_index < W.len() {
-                *x += mul_0_1_optimized(&val, &W[z_index]);
-              } else if z_index == W.len() {
-                *x += val;
-              } else {
-                *x += mul_0_1_optimized(&val, &X[z_index - W.len() - 1]);
-              }
+              *x += mul_0_1_optimized(&val, &virtual_z_vector(z_index));
             });
           }
         }

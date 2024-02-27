@@ -93,7 +93,12 @@ impl<G: Group> SumcheckProof<G> {
   }
 
   #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad")]
-  pub fn prove_quad_fork<F>(
+  // A fork of `prove_quad` with the 0th round unrolled from the rest of the 
+  // for loop. This allows us to pass in `W` and `X` as references instead of
+  // passing them in as a single `MultilinearPolynomial`, which would require
+  // an expensive concatenation. We defer the actual instantation of a 
+  // `MultilinearPolynomial` to the end of the 0th round.
+  pub fn prove_quad_unrolled<F>(
     claim: &G::Scalar,
     num_rounds: usize,
     poly_A: &mut MultilinearPolynomial<G::Scalar>,
@@ -111,6 +116,9 @@ impl<G: Group> SumcheckProof<G> {
 
     /*          Round 0 START         */
 
+    // Simulates `poly_B` polynomial with evaluations
+    //     [W, 1, X, 0, 0, ...]
+    // without actually concatenating W and X, which would be expensive.
     let virtual_poly_B = |index: usize| {
       if index < W.len() {
         W[index]
@@ -126,9 +134,9 @@ impl<G: Group> SumcheckProof<G> {
 
     let len = poly_A.len() / 2;
     let poly = {
-      // let (eval_point_0, eval_point_2) =
-      //   Self::compute_eval_points_quadratic(poly_A, poly_B, &comb_func);
-
+      // A fork of:
+      //     Self::compute_eval_points_quadratic(poly_A, poly_B, &comb_func);
+      // that uses `virtual_poly_B`
       let (eval_point_0, eval_point_2) = (0..len)
         .into_par_iter()
         .map(|i| {
@@ -166,6 +174,11 @@ impl<G: Group> SumcheckProof<G> {
     let (_, mut poly_B) = rayon::join(
       || poly_A.bound_poly_var_top(&r_i),
       || {
+        // Simulates `poly_B.bound_poly_var_top(&r_i)`
+        // We need to do this because we don't actually have 
+        // a `MultilinearPolynomial` instance for `poly_B` yet,
+        // only the constituents of its (Lagrange basis) coefficients
+        // `W` and `X`.
         let zero = G::Scalar::ZERO;
         let one = [G::Scalar::ONE];
         let Z_iter = W
