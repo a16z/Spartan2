@@ -93,6 +93,135 @@ impl<G: Group> SumcheckProof<G> {
   }
 
   #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad")]
+  pub fn prove_quad_fork<F>(
+    claim: &G::Scalar,
+    num_rounds: usize,
+    poly_A: &mut MultilinearPolynomial<G::Scalar>,
+    W: &Vec<G::Scalar>,
+    X: &Vec<G::Scalar>,
+    comb_func: F,
+    transcript: &mut G::TE,
+  ) -> Result<(Self, Vec<G::Scalar>, Vec<G::Scalar>), SpartanError>
+  where
+    F: Fn(&G::Scalar, &G::Scalar) -> G::Scalar + Sync,
+  {
+    let mut r: Vec<G::Scalar> = Vec::new();
+    let mut polys: Vec<CompressedUniPoly<G::Scalar>> = Vec::new();
+    let mut claim_per_round = *claim;
+
+    /*          Round 0 START         */
+
+    let virtual_poly_B = |index: usize| {
+      if index < W.len() {
+        W[index]
+      } else if index == W.len() {
+        G::Scalar::ONE
+      } else if index <= W.len() + X.len() {
+        let x_index = index - W.len() - 1;
+        X[x_index]
+      } else {
+        G::Scalar::ZERO
+      }
+    };
+
+    let len = poly_A.len() / 2;
+    let poly = {
+      // let (eval_point_0, eval_point_2) =
+      //   Self::compute_eval_points_quadratic(poly_A, poly_B, &comb_func);
+
+      let (eval_point_0, eval_point_2) = (0..len)
+        .into_par_iter()
+        .map(|i| {
+          // eval 0: bound_func is A(low)
+          let eval_point_0 = comb_func(&poly_A[i], &virtual_poly_B(i));
+
+          // eval 2: bound_func is -A(low) + 2*A(high)
+          let poly_A_bound_point = poly_A[len + i] + poly_A[len + i] - poly_A[i];
+          let poly_B_bound_point =
+            virtual_poly_B(len + i) + virtual_poly_B(len + i) - virtual_poly_B(i);
+          let eval_point_2 = comb_func(&poly_A_bound_point, &poly_B_bound_point);
+          (eval_point_0, eval_point_2)
+        })
+        .reduce(
+          || (G::Scalar::ZERO, G::Scalar::ZERO),
+          |a, b| (a.0 + b.0, a.1 + b.1),
+        );
+
+      let evals = vec![eval_point_0, claim_per_round - eval_point_0, eval_point_2];
+      UniPoly::from_evals(&evals)
+    };
+
+    // append the prover's message to the transcript
+    transcript.absorb(b"p", &poly);
+
+    //derive the verifier's challenge for the next round
+    let r_i = transcript.squeeze(b"c")?;
+    r.push(r_i);
+    polys.push(poly.compress());
+
+    // Set up next round
+    claim_per_round = poly.evaluate(&r_i);
+
+    // bound all tables to the verifier's challenge
+    let (_, mut poly_B) = rayon::join(
+      || poly_A.bound_poly_var_top(&r_i),
+      || {
+        let zero = G::Scalar::ZERO;
+        let one = [G::Scalar::ONE];
+        let Z_iter = W
+          .par_iter()
+          .chain(one.par_iter())
+          .chain(X.par_iter())
+          .chain(rayon::iter::repeatn(&zero, len));
+        let left_iter = Z_iter.clone().take(len);
+        let right_iter = Z_iter.skip(len).take(len);
+        let B = left_iter
+          .zip(right_iter)
+          .map(|(a, b)| *a + r_i * (*b - *a))
+          .collect();
+        MultilinearPolynomial::new(B)
+      },
+    );
+
+    /*          Round 0 END          */
+
+    for _ in 1..num_rounds {
+      let poly = {
+        let (eval_point_0, eval_point_2) =
+          Self::compute_eval_points_quadratic(poly_A, &poly_B, &comb_func);
+
+        let evals = vec![eval_point_0, claim_per_round - eval_point_0, eval_point_2];
+        UniPoly::from_evals(&evals)
+      };
+
+      // append the prover's message to the transcript
+      transcript.absorb(b"p", &poly);
+
+      //derive the verifier's challenge for the next round
+      let r_i = transcript.squeeze(b"c")?;
+      r.push(r_i);
+      polys.push(poly.compress());
+
+      // Set up next round
+      claim_per_round = poly.evaluate(&r_i);
+
+      // bound all tables to the verifier's challenege
+      rayon::join(
+        || poly_A.bound_poly_var_top(&r_i),
+        || poly_B.bound_poly_var_top(&r_i),
+      );
+    }
+
+    Ok((
+      SumcheckProof {
+        compressed_polys: polys,
+      },
+      r,
+      vec![poly_A[0], poly_B[0]],
+    ))
+  }
+
+  #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad")]
   pub fn prove_quad<F>(
     claim: &G::Scalar,
     num_rounds: usize,
@@ -128,7 +257,10 @@ impl<G: Group> SumcheckProof<G> {
       claim_per_round = poly.evaluate(&r_i);
 
       // bound all tables to the verifier's challenege
-      rayon::join(|| poly_A.bound_poly_var_top(&r_i), || poly_B.bound_poly_var_top(&r_i));
+      rayon::join(
+        || poly_A.bound_poly_var_top(&r_i),
+        || poly_B.bound_poly_var_top(&r_i),
+      );
     }
 
     Ok((
@@ -293,13 +425,17 @@ impl<G: Group> SumcheckProof<G> {
       // bound all tables to the verifier's challenege
       rayon::join(
         || poly_A.bound_poly_var_top(&r_i),
-        || rayon::join(
-          || poly_B.bound_poly_var_top(&r_i),
-          || rayon::join(
-            || poly_C.bound_poly_var_top(&r_i),
-            || poly_D.bound_poly_var_top(&r_i),
-          ),
-        ),
+        || {
+          rayon::join(
+            || poly_B.bound_poly_var_top(&r_i),
+            || {
+              rayon::join(
+                || poly_C.bound_poly_var_top(&r_i),
+                || poly_D.bound_poly_var_top(&r_i),
+              )
+            },
+          )
+        },
       );
     }
 

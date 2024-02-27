@@ -350,24 +350,15 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     };
     drop(_enter);
     drop(span);
-
-    // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
-    let z_span = tracing::span!(tracing::Level::TRACE, "bs");
-    let _z_enter = z_span.enter();
-    let w_clone = w.W.clone();
-    let mut z = [w.W, vec![1.into()], u.X].concat();
-    z.resize(pk.num_vars_total * 2, G::Scalar::ZERO);
-    drop(_z_enter);
-    drop(z_span);
-
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
       *poly_A_comp * *poly_B_comp
     };
-    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad(
+    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_fork(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
       num_rounds_y,
       &mut MultilinearPolynomial::new(poly_ABC), // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
-      &mut MultilinearPolynomial::new(z), // z(y) for all y
+      &w.W,
+      &u.X,
       comb_func,
       &mut transcript,
     )?;
@@ -380,7 +371,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       &pk.pk_ee,
       &mut transcript,
       &u.comm_W,
-      &w_clone,
+      &w.W,
       &r_y[1..],
       &mut eval_W,
     )?;
