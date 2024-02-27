@@ -139,13 +139,12 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
 
   /// Bounds the polynomial's top variables using the given scalars.
   #[tracing::instrument(skip_all, name = "MultilinearPolynomial::bound")]
-  pub fn bound(&self, L: &[Scalar]) -> Vec<Scalar> {
+  pub fn bound(Z: &[Scalar], L: &[Scalar]) -> Vec<Scalar> {
     let (_left_num_vars, right_num_vars) =
-      EqPolynomial::<Scalar>::compute_factored_lens(self.num_vars);
+      EqPolynomial::<Scalar>::compute_factored_lens(Z.len().ilog2() as usize);
     let R_size = (2_usize).pow(right_num_vars as u32);
 
-    self
-      .Z
+    Z
       .par_chunks(R_size)
       .enumerate()
       // TODO(moodlezoup): optimize for 0/1
