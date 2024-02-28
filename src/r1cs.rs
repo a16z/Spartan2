@@ -587,21 +587,19 @@ impl<G: Group> R1CSShape<G> {
 impl<G: Group> R1CSWitness<G> {
   /// A method to create a witness object using a vector of scalars
   #[tracing::instrument(skip_all, name = "R1CSWitness::new")]
-  pub fn new(S: &R1CSShape<G>, W: &[G::Scalar]) -> Result<R1CSWitness<G>, SpartanError> {
-    let w = R1CSWitness { W: W.to_owned() };
-    Ok(w.pad(S))
+  pub fn new(S: &R1CSShape<G>, W: Vec<G::Scalar>) -> Result<R1CSWitness<G>, SpartanError> {
+    let mut w = R1CSWitness { W };
+    w.pad(S);
+    Ok(w)
   }
 
   /// Pads the provided witness to the correct length
   #[tracing::instrument(skip_all, name = "R1CSWitness::pad")]
-  pub fn pad(&self, S: &R1CSShape<G>) -> R1CSWitness<G> {
-    let W = {
-      let mut W = self.W.clone();
-      W.extend(vec![G::Scalar::ZERO; S.num_vars - W.len()]);
-      W
-    };
-
-    Self { W }
+  pub fn pad(&mut self, S: &R1CSShape<G>) {
+    self.W.par_extend(rayon::iter::repeatn(
+      G::Scalar::ZERO,
+      S.num_vars - self.W.len(),
+    ));
   }
 
   /// Commits to the witness using the supplied generators

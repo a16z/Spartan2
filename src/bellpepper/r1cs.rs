@@ -17,7 +17,7 @@ use ff::PrimeField;
 pub trait SpartanWitness<G: Group> {
   /// Return an instance and witness, given a shape and ck.
   fn r1cs_instance_and_witness(
-    &self,
+    self,
     shape: &R1CSShape<G>,
     ck: &CommitmentKey<G>,
   ) -> Result<(R1CSInstance<G>, R1CSWitness<G>), SpartanError>;
@@ -35,11 +35,11 @@ where
 {
   #[tracing::instrument(skip_all)]
   fn r1cs_instance_and_witness(
-    &self,
+    self,
     shape: &R1CSShape<G>,
     ck: &CommitmentKey<G>,
   ) -> Result<(R1CSInstance<G>, R1CSWitness<G>), SpartanError> {
-    let W = R1CSWitness::<G>::new(shape, &self.aux_assignment)?;
+    let W = R1CSWitness::<G>::new(shape, self.aux_assignment)?;
     let X = &self.input_assignment[1..];
 
     let comm_W = W.commit(ck);
