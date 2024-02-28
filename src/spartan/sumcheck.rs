@@ -93,10 +93,10 @@ impl<G: Group> SumcheckProof<G> {
   }
 
   #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad")]
-  // A fork of `prove_quad` with the 0th round unrolled from the rest of the 
+  // A fork of `prove_quad` with the 0th round unrolled from the rest of the
   // for loop. This allows us to pass in `W` and `X` as references instead of
   // passing them in as a single `MultilinearPolynomial`, which would require
-  // an expensive concatenation. We defer the actual instantation of a 
+  // an expensive concatenation. We defer the actual instantation of a
   // `MultilinearPolynomial` to the end of the 0th round.
   pub fn prove_quad_unrolled<F>(
     claim: &G::Scalar,
@@ -110,8 +110,8 @@ impl<G: Group> SumcheckProof<G> {
   where
     F: Fn(&G::Scalar, &G::Scalar) -> G::Scalar + Sync,
   {
-    let mut r: Vec<G::Scalar> = Vec::new();
-    let mut polys: Vec<CompressedUniPoly<G::Scalar>> = Vec::new();
+    let mut r: Vec<G::Scalar> = Vec::with_capacity(num_rounds);
+    let mut polys: Vec<CompressedUniPoly<G::Scalar>> = Vec::with_capacity(num_rounds);
     let mut claim_per_round = *claim;
 
     /*          Round 0 START         */
@@ -155,7 +155,7 @@ impl<G: Group> SumcheckProof<G> {
           |a, b| (a.0 + b.0, a.1 + b.1),
         );
 
-      let evals = vec![eval_point_0, claim_per_round - eval_point_0, eval_point_2];
+      let evals = [eval_point_0, claim_per_round - eval_point_0, eval_point_2];
       UniPoly::from_evals(&evals)
     };
 
@@ -175,7 +175,7 @@ impl<G: Group> SumcheckProof<G> {
       || poly_A.bound_poly_var_top_zero_optimized(&r_i),
       || {
         // Simulates `poly_B.bound_poly_var_top(&r_i)`
-        // We need to do this because we don't actually have 
+        // We need to do this because we don't actually have
         // a `MultilinearPolynomial` instance for `poly_B` yet,
         // only the constituents of its (Lagrange basis) coefficients
         // `W` and `X`.
@@ -190,15 +190,7 @@ impl<G: Group> SumcheckProof<G> {
         let right_iter = Z_iter.skip(len).take(len);
         let B = left_iter
           .zip(right_iter)
-          .map(|(a, b)| {
-            if *a == G::Scalar::ZERO && *b == G::Scalar::ZERO {
-              G::Scalar::ZERO
-            } else if *a == G::Scalar::ZERO {
-              r_i * *b
-            } else {
-              *a + r_i * (*b - *a)
-            }
-          })
+          .map(|(a, b)| if *a == *b { *a } else { *a + r_i * (*b - *a) })
           .collect();
         MultilinearPolynomial::new(B)
       },
@@ -211,7 +203,7 @@ impl<G: Group> SumcheckProof<G> {
         let (eval_point_0, eval_point_2) =
           Self::compute_eval_points_quadratic(poly_A, &poly_B, &comb_func);
 
-        let evals = vec![eval_point_0, claim_per_round - eval_point_0, eval_point_2];
+        let evals = [eval_point_0, claim_per_round - eval_point_0, eval_point_2];
         UniPoly::from_evals(&evals)
       };
 

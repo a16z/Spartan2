@@ -243,40 +243,21 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       )
     };
 
-    let comb_func_outer =
-      |poly_A_comp: &G::Scalar,
-       poly_B_comp: &G::Scalar,
-       poly_C_comp: &G::Scalar,
-       poly_D_comp: &G::Scalar|
-       -> G::Scalar {         
-        if *poly_B_comp == G::Scalar::ZERO || *poly_C_comp == G::Scalar::ZERO {
-          if *poly_D_comp == G::Scalar::ZERO {
-            G::Scalar::ZERO
-          } else {
-            *poly_A_comp * ( - (*poly_D_comp))
-          }
+    let comb_func_outer = |poly_A_comp: &G::Scalar,
+                           poly_B_comp: &G::Scalar,
+                           poly_C_comp: &G::Scalar,
+                           poly_D_comp: &G::Scalar|
+     -> G::Scalar {
+      if *poly_B_comp == G::Scalar::ZERO || *poly_C_comp == G::Scalar::ZERO {
+        if *poly_D_comp == G::Scalar::ZERO {
+          G::Scalar::ZERO
         } else {
-          *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) 
+          *poly_A_comp * (-(*poly_D_comp))
         }
-      };
-
-    // fn count_zeros_ones_in_poly<S: PrimeField>(evals: &[S]) {
-    //     let (mut zero_count, mut one_count) = (0, 0);
-    //     for &value in evals {
-    //         if value == S::ZERO {
-    //             zero_count += 1;
-    //         } else if value == S::ONE {
-    //             one_count += 1;
-    //         }
-    //     }
-    //     let percent_zeros = (zero_count as f64 / evals.len() as f64) * 100.0;
-    //     let percent_ones = (one_count as f64 / evals.len() as f64) * 100.0;
-    //     println!("Zeros: {}, Ones: {}, Percent Zeros: {:.2}%, Percent Ones: {:.2}%", zero_count, one_count, percent_zeros, percent_ones);
-    // }
-
-    // count_zeros_ones_in_poly(poly_Az.get_Z());
-    // count_zeros_ones_in_poly(poly_Bz.get_Z());
-    // count_zeros_ones_in_poly(poly_Cz.get_Z());
+      } else {
+        *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp)
+      }
+    };
 
     let (sc_proof_outer, r_x, claims_outer) = SumcheckProof::prove_cubic_with_additive_term(
       &G::Scalar::ZERO, // claim is zero
@@ -308,7 +289,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       let (rx_con, rx_ts) = r_x.split_at(r_x.len() - NUM_STEPS_BITS as usize);
       let eq_rx_con = EqPolynomial::new(rx_con.to_vec()).evals();
       let eq_rx_ts = EqPolynomial::new(rx_ts.to_vec()).evals();
-
+      
       let N_STEPS = pk.num_steps;
 
       // With uniformity, each entry of the RLC of A, B, C can be expressed using
@@ -377,19 +358,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     drop(_enter);
     drop(span);
 
-    // println!("poly_ABC");
-    // count_zeros_ones_in_poly(&poly_ABC.clone());
-    // println!("w.W");
-    // count_zeros_ones_in_poly(&w.W);
-    // println!("u.X");
-    // count_zeros_ones_in_poly(&u.X);
-
-
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
       if *poly_A_comp == G::Scalar::ZERO || *poly_B_comp == G::Scalar::ZERO {
-          G::Scalar::ZERO
+        G::Scalar::ZERO
       } else {
-          *poly_A_comp * *poly_B_comp
+        *poly_A_comp * *poly_B_comp
       }
     };
     let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_unrolled(
