@@ -337,14 +337,9 @@ where
   ) -> Result<Self::EvaluationArgument, SpartanError> {
     transcript.absorb(b"poly_com", comm);
 
-    let span = tracing::span!(tracing::Level::INFO, "poly_m_construct");
-    let _guard = span.enter();
-    let poly_m = MultilinearPolynomial::<G::Scalar>::new(poly.to_vec());
-    drop(_guard);
-    drop(span);
-
     // assert vectors are of the right size
-    assert_eq!(poly_m.get_num_vars(), point.len());
+    assert!(poly.len().is_power_of_two());
+    assert_eq!(poly.len().ilog2(), point.len() as u32);
 
     let (left_num_vars, right_num_vars) =
       EqPolynomial::<G::Scalar>::compute_factored_lens(point.len());
@@ -360,7 +355,7 @@ where
 
     // compute the vector underneath L*Z
     // compute vector-matrix product between L and Z viewed as a matrix
-    let LZ = poly_m.bound(&L);
+    let LZ = MultilinearPolynomial::bound(poly, &L);
     // compute the evaluation as (L*Z)*R
     *eval = Some(LZ.par_iter().zip(R.par_iter()).map(|(lz, r)| *lz * r).sum());
 

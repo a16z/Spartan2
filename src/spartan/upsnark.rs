@@ -3,9 +3,9 @@
 //! This version of Spartan does not use preprocessing so the verifier keeps the entire
 //! description of R1CS matrices. This is essentially optimal for the verifier when using
 //! an IPA-based polynomial commitment scheme.
-//! The difference between this file and snark.rs is that it trims out the "Relaxed" parts 
+//! The difference between this file and snark.rs is that it trims out the "Relaxed" parts
 //! and only works with (normal) R1CS, making it more efficient.
-//! This basic R1CSStruct also implements "uniform" and "precommitted" traits. 
+//! This basic R1CSStruct also implements "uniform" and "precommitted" traits.
 
 use crate::{
   bellpepper::{
@@ -15,15 +15,17 @@ use crate::{
   },
   digest::{DigestComputer, SimpleDigestible},
   errors::SpartanError,
-  r1cs::{R1CSShape, R1CSInstance},
+  r1cs::{R1CSInstance, R1CSShape},
   spartan::{
     polys::{eq::EqPolynomial, multilinear::MultilinearPolynomial, multilinear::SparsePolynomial},
     sumcheck::SumcheckProof,
     // PolyEvalInstance, PolyEvalWitness,
   },
   traits::{
-    commitment::CommitmentTrait, evaluation::EvaluationEngineTrait, snark::RelaxedR1CSSNARKTrait, 
-    upsnark::{UniformSNARKTrait, PrecommittedSNARKTrait}, 
+    commitment::CommitmentTrait,
+    evaluation::EvaluationEngineTrait,
+    snark::RelaxedR1CSSNARKTrait,
+    upsnark::{PrecommittedSNARKTrait, UniformSNARKTrait},
     Group, TranscriptEngineTrait,
   },
   Commitment, CommitmentKey, CompressedCommitment,
@@ -84,13 +86,12 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> VerifierKey<G, EE> {
 pub struct UniformProverKey<G: Group, EE: EvaluationEngineTrait<G>> {
   ck: CommitmentKey<G>,
   pk_ee: EE::ProverKey,
-  S: R1CSShape<G>, // Single step shape
+  S: R1CSShape<G>,       // Single step shape
   num_cons_total: usize, // Number of constraints
   num_vars_total: usize, // Number of variables
-  num_steps: usize, // Number of steps
-  vk_digest: G::Scalar, // digest of the verifier's key
+  num_steps: usize,      // Number of steps
+  vk_digest: G::Scalar,  // digest of the verifier's key
 }
-
 
 /// A uniform version of the verifier's key
 #[derive(Serialize, Deserialize)]
@@ -98,9 +99,9 @@ pub struct UniformProverKey<G: Group, EE: EvaluationEngineTrait<G>> {
 pub struct UniformVerifierKey<G: Group, EE: EvaluationEngineTrait<G>> {
   vk_ee: EE::VerifierKey,
   S_single: R1CSShape<G>, // A single step's shape
-  num_cons_total: usize, // Number of constraints
-  num_vars_total: usize, // Number of variables
-  num_steps: usize, // Number of steps
+  num_cons_total: usize,  // Number of constraints
+  num_vars_total: usize,  // Number of variables
+  num_steps: usize,       // Number of steps
   #[serde(skip, default = "OnceCell::new")]
   digest: OnceCell<G::Scalar>,
 }
@@ -108,7 +109,13 @@ pub struct UniformVerifierKey<G: Group, EE: EvaluationEngineTrait<G>> {
 impl<G: Group, EE: EvaluationEngineTrait<G>> SimpleDigestible for UniformVerifierKey<G, EE> {}
 
 impl<G: Group, EE: EvaluationEngineTrait<G>> UniformVerifierKey<G, EE> {
-  fn new(vk_ee: EE::VerifierKey, shape_single: R1CSShape<G>, num_steps: usize, num_cons_total: usize, num_vars_total: usize) -> Self {
+  fn new(
+    vk_ee: EE::VerifierKey,
+    shape_single: R1CSShape<G>,
+    num_steps: usize,
+    num_cons_total: usize,
+    num_vars_total: usize,
+  ) -> Self {
     UniformVerifierKey {
       vk_ee,
       S_single: shape_single,
@@ -124,7 +131,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformVerifierKey<G, EE> {
     self
       .digest
       .get_or_try_init(|| {
-        let vk = VerifierKey::<G, EE>::new(self.S_single.clone(), self.vk_ee.clone()); 
+        let vk = VerifierKey::<G, EE>::new(self.S_single.clone(), self.vk_ee.clone());
         let dc = DigestComputer::<G::Scalar, _>::new(&vk);
         dc.digest()
       })
@@ -162,7 +169,8 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S.clone(), 1, num_cons_total, num_vars_total);
+    let vk: UniformVerifierKey<G, EE> =
+      UniformVerifierKey::new(vk_ee, S.clone(), 1, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
@@ -180,12 +188,16 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
   /// produces a succinct proof of satisfiability of a `RelaxedR1CS` instance
   #[tracing::instrument(skip_all, name = "Spartan2::UPSnark::prove")]
   fn prove<C: Circuit<G::Scalar>>(pk: &Self::ProverKey, circuit: C) -> Result<Self, SpartanError> {
+    // sanity check that R1CSShape has certain size characteristics
+    // TODO(arasuarun): make sure this is enforced during setup
+    // pk.S.check_regular_shape();
+
     let mut cs: SatisfyingAssignment<G> = SatisfyingAssignment::new();
     let _ = circuit.synthesize(&mut cs);
 
-    // Create a hollow shape with the right dimensions but no matrices. 
-    // This is a convenience to work with Spartan's r1cs_instance_and_witness function 
-    // and other padding functions without changing their signature. 
+    // Create a hollow shape with the right dimensions but no matrices.
+    // This is a convenience to work with Spartan's r1cs_instance_and_witness function
+    // and other padding functions without changing their signature.
     let hollow_S = R1CSShape::<G> {
       num_cons: pk.num_cons_total,
       num_vars: pk.num_vars_total,
@@ -200,37 +212,15 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       .r1cs_instance_and_witness(&hollow_S, &pk.ck)
       .map_err(|_e| SpartanError::UnSat)?;
 
-    let non_commitment_span = tracing::span!(tracing::Level::INFO, "PostCommitProve");
-    let _guard = non_commitment_span.enter();
-
-
-    // form a padded version of the witness, W, for use in polynomial commitment later 
-    let clone_span = tracing::span!(tracing::Level::TRACE, "w.clone");
-    let _clone_enter = clone_span.enter();
-    let W: crate::r1cs::R1CSWitness<G> = w.clone();
-    drop(_clone_enter);
-    drop(clone_span);
-
-    // TODO(arasuarun): check if padding is ever required below 
-    // W.W.extend(vec![G::Scalar::ZERO; pk.num_vars_total - W.W.len()]);
+    // TODO(arasuarun): check if padding is ever required below
+    // w.W.extend(vec![G::Scalar::ZERO; pk.num_vars_total - W.W.len()]);
     // let W = w.pad(&pk.S); // pad the witness
 
     let mut transcript = G::TE::new(b"R1CSSNARK");
 
-    // sanity check that R1CSShape has certain size characteristics
-    // TODO(arasuarun): make sure this is enforced during setup 
-    // pk.S.check_regular_shape();
-
     // append the digest of vk (which includes R1CS matrices) and the RelaxedR1CSInstance to the transcript
     transcript.absorb(b"vk", &pk.vk_digest);
     transcript.absorb(b"U", &u);
-
-    // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
-    let concat_span = tracing::span!(tracing::Level::TRACE, "concat");
-    let _concat_enter = concat_span.enter();
-    let mut z = [w.W, vec![1.into()], u.X].concat();
-    drop(_concat_enter);
-    drop(concat_span);
 
     let (num_rounds_x, num_rounds_y) = (
       usize::try_from(pk.num_cons_total.ilog2()).unwrap(),
@@ -243,13 +233,13 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       .collect::<Result<Vec<G::Scalar>, SpartanError>>()?;
 
     let mut poly_tau = MultilinearPolynomial::new(EqPolynomial::new(tau).evals());
-    // poly_Az is the polynomial extended from the vector Az 
+    // poly_Az is the polynomial extended from the vector Az
     let (mut poly_Az, mut poly_Bz, mut poly_Cz) = {
-      let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec_uniform(&z, pk.num_steps)?;
+      let (Az, Bz, Cz) = pk.S.multiply_vec_uniform(&w.W, &u.X, pk.num_steps)?;
       (
-        MultilinearPolynomial::new(poly_Az),
-        MultilinearPolynomial::new(poly_Bz),
-        MultilinearPolynomial::new(poly_Cz),
+        MultilinearPolynomial::new(Az),
+        MultilinearPolynomial::new(Bz),
+        MultilinearPolynomial::new(Cz),
       )
     };
 
@@ -271,13 +261,10 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     )?;
 
     // claims from the end of sum-check
-    // claim_Az is the (scalar) value v_A = \sum_y A(r_x, y) * z(r_x) where r_x is the sumcheck randomness 
+    // claim_Az is the (scalar) value v_A = \sum_y A(r_x, y) * z(r_x) where r_x is the sumcheck randomness
     let (claim_Az, claim_Bz): (G::Scalar, G::Scalar) = (claims_outer[1], claims_outer[2]);
     let claim_Cz = claims_outer[3];
-    transcript.absorb(
-      b"claims_outer",
-      &[claim_Az, claim_Bz, claim_Cz].as_slice(),
-    );
+    transcript.absorb(b"claims_outer", &[claim_Az, claim_Bz, claim_Cz].as_slice());
 
     // inner sum-check
     let r = transcript.squeeze(b"r")?;
@@ -295,38 +282,43 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
       let N_STEPS = pk.num_steps;
 
-      // With uniformity, each entry of the RLC of A, B, C can be expressed using 
+      // With uniformity, each entry of the RLC of A, B, C can be expressed using
       // the RLC of the small_A, small_B, small_C matrices.
 
-      // 1. Evaluate \tilde smallM(r_x, y) for all y 
-      let compute_eval_table_sparse_single= |small_M: &Vec<(usize, usize, G::Scalar)>| -> Vec<G::Scalar> {
-        let mut small_M_evals = vec![G::Scalar::ZERO; pk.S.num_vars + 1];
-        for (row, col, val) in small_M.iter() {
-          small_M_evals[*col] += eq_rx_con[*row] * val;
-        }
-        small_M_evals
-      };
+      // 1. Evaluate \tilde smallM(r_x, y) for all y
+      let compute_eval_table_sparse_single =
+        |small_M: &Vec<(usize, usize, G::Scalar)>| -> Vec<G::Scalar> {
+          let mut small_M_evals = vec![G::Scalar::ZERO; pk.S.num_vars + 1];
+          for (row, col, val) in small_M.iter() {
+            small_M_evals[*col] += eq_rx_con[*row] * val;
+          }
+          small_M_evals
+        };
 
       let (small_A_evals, (small_B_evals, small_C_evals)) = rayon::join(
         || compute_eval_table_sparse_single(&pk.S.A),
-        || rayon::join(
+        || {
+          rayon::join(
             || compute_eval_table_sparse_single(&pk.S.B),
             || compute_eval_table_sparse_single(&pk.S.C),
-        ),
+          )
+        },
       );
 
-      let small_RLC_evals = (0..small_A_evals.len()).into_par_iter().map(|i| {
-        small_A_evals[i] + small_B_evals[i] * r + small_C_evals[i] * r * r
-      }).collect::<Vec<G::Scalar>>();
+      let small_RLC_evals = (0..small_A_evals.len())
+        .into_par_iter()
+        .map(|i| small_A_evals[i] + small_B_evals[i] * r + small_C_evals[i] * r * r)
+        .collect::<Vec<G::Scalar>>();
 
       // 2. Handles all entries but the last one with the constant 1 variable
-      let mut RLC_evals: Vec<G::Scalar> = (0..pk.num_vars_total).into_par_iter().map(|col| {
-        eq_rx_ts[col % N_STEPS] * small_RLC_evals[col / N_STEPS]
-      }).collect();
+      let mut RLC_evals: Vec<G::Scalar> = (0..pk.num_vars_total)
+        .into_par_iter()
+        .map(|col| eq_rx_ts[col % N_STEPS] * small_RLC_evals[col / N_STEPS])
+        .collect();
       let next_pow_2 = 2 * pk.num_vars_total;
       RLC_evals.resize(next_pow_2, G::Scalar::ZERO);
 
-      // 3. Handles the constant 1 variable 
+      // 3. Handles the constant 1 variable
       let compute_eval_constant_column = |small_M: &Vec<(usize, usize, G::Scalar)>| -> G::Scalar {
         let constant_sum: G::Scalar = small_M.iter()
           .filter(|(_, col, _)| *col == pk.S.num_vars)   // expecting ~1
@@ -335,42 +327,36 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
               *val * eq_rx_con[*row] * eq_sum
           }).sum();
 
-        constant_sum 
+        constant_sum
       };
 
       let (constant_term_A, (constant_term_B, constant_term_C)) = rayon::join(
         || compute_eval_constant_column(&pk.S.A),
-        || rayon::join(
+        || {
+          rayon::join(
             || compute_eval_constant_column(&pk.S.B),
             || compute_eval_constant_column(&pk.S.C),
-        ),
+          )
+        },
       );
 
-      RLC_evals[pk.num_vars_total] = constant_term_A + r * constant_term_B + r * r * constant_term_C;
+      RLC_evals[pk.num_vars_total] =
+        constant_term_A + r * constant_term_B + r * r * constant_term_C;
 
       RLC_evals
     };
     drop(_enter);
     drop(span);
 
-    
-    let resize_span = tracing::span!(tracing::Level::TRACE, "z.resize");
-    let _resize_enter = resize_span.enter();
-    let poly_z = {
-      z.resize(pk.num_vars_total * 2, G::Scalar::ZERO);
-      z
-    };
-    drop(_resize_enter);
-    drop(resize_span);
-
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
       *poly_A_comp * *poly_B_comp
     };
-    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad(
+    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_unrolled(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
       num_rounds_y,
       &mut MultilinearPolynomial::new(poly_ABC), // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
-      &mut MultilinearPolynomial::new(poly_z), // z(y) for all y
+      &w.W,
+      &u.X,
       comb_func,
       &mut transcript,
     )?;
@@ -383,7 +369,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       &pk.pk_ee,
       &mut transcript,
       &u.comm_W,
-      &W.W,
+      &w.W,
       &r_y[1..],
       &mut eval_W,
     )?;
@@ -404,8 +390,8 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     // construct an instance using the provided commitment to the witness and IO
     let comm_W = Commitment::<G>::decompress(&self.comm_W)?;
 
-    // This object has the shape dimensions but no matrices. 
-    // A convenience to work with Spartan's functions without changing their signature. 
+    // This object has the shape dimensions but no matrices.
+    // A convenience to work with Spartan's functions without changing their signature.
     let hollow_S = R1CSShape::<G> {
       num_cons: vk.num_cons_total,
       num_vars: vk.num_vars_total,
@@ -440,8 +426,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     // verify claim_outer_final
     let (claim_Az, claim_Bz, claim_Cz) = self.claims_outer;
     let taus_bound_rx = EqPolynomial::new(tau).evaluate(&r_x);
-    let claim_outer_final_expected =
-      taus_bound_rx * (claim_Az * claim_Bz - claim_Cz);
+    let claim_outer_final_expected = taus_bound_rx * (claim_Az * claim_Bz - claim_Cz);
     if claim_outer_final != claim_outer_final_expected {
       return Err(SpartanError::InvalidSumcheckProof);
     }
@@ -485,26 +470,35 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
     // compute evaluations of R1CS matrices
     let multi_evaluate_uniform = |M_vec: &[&[(usize, usize, G::Scalar)]],
-                          r_x: &[G::Scalar],
-                          r_y: &[G::Scalar], 
-                          num_steps: usize,|
+                                  r_x: &[G::Scalar],
+                                  r_y: &[G::Scalar],
+                                  num_steps: usize|
      -> Vec<G::Scalar> {
-      let evaluate_with_table_uniform =
-        |M: &[(usize, usize, G::Scalar)], T_x: &[G::Scalar], T_y: &[G::Scalar], num_steps: usize| -> G::Scalar {
-          (0..M.len())
-            .into_par_iter()
-            .map(|i| {
-              let (row, col, val) = M[i];
-              (0..num_steps).into_par_iter().map(|j| {
+      let evaluate_with_table_uniform = |M: &[(usize, usize, G::Scalar)],
+                                         T_x: &[G::Scalar],
+                                         T_y: &[G::Scalar],
+                                         num_steps: usize|
+       -> G::Scalar {
+        (0..M.len())
+          .into_par_iter()
+          .map(|i| {
+            let (row, col, val) = M[i];
+            (0..num_steps)
+              .into_par_iter()
+              .map(|j| {
                 let row = row * num_steps + j;
-                let col = if col != vk.S_single.num_vars { col * num_steps + j } else { vk.num_vars_total }; 
+                let col = if col != vk.S_single.num_vars {
+                  col * num_steps + j
+                } else {
+                  vk.num_vars_total
+                };
                 let val = val * T_x[row] * T_y[col];
                 val
               })
               .sum::<G::Scalar>()
-            })
-            .sum()
-        };
+          })
+          .sum()
+      };
 
       let (T_x, T_y) = rayon::join(
         || EqPolynomial::new(r_x.to_vec()).evals(),
@@ -516,9 +510,13 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
         .map(|i| evaluate_with_table_uniform(M_vec[i], &T_x, &T_y, num_steps))
         .collect()
     };
-    
 
-    let evals = multi_evaluate_uniform(&[&vk.S_single.A, &vk.S_single.B, &vk.S_single.C], &r_x, &r_y, vk.num_steps);
+    let evals = multi_evaluate_uniform(
+      &[&vk.S_single.A, &vk.S_single.B, &vk.S_single.C],
+      &r_x,
+      &r_y,
+      vk.num_steps,
+    );
 
     let claim_inner_final_expected = (evals[0] + r * evals[1] + r * r * evals[2]) * eval_Z;
     if claim_inner_final != claim_inner_final_expected {
@@ -543,7 +541,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformSNARKTrait<G> for R1CSSNARK<
   #[tracing::instrument(skip_all, name = "SNARK::setup_uniform")]
   fn setup_uniform<C: Circuit<G::Scalar>>(
     circuit: C,
-    num_steps: usize, 
+    num_steps: usize,
   ) -> Result<(UniformProverKey<G, EE>, UniformVerifierKey<G, EE>), SpartanError> {
     let mut cs: ShapeCS<G> = ShapeCS::new();
     let _ = circuit.synthesize(&mut cs);
@@ -551,13 +549,14 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformSNARKTrait<G> for R1CSSNARK<
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S.clone(), num_steps, num_cons_total, num_vars_total);
+    let vk: UniformVerifierKey<G, EE> =
+      UniformVerifierKey::new(vk_ee, S.clone(), num_steps, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
       pk_ee,
-      S, 
-      num_steps, 
+      S,
+      num_steps,
       num_cons_total,
       num_vars_total,
       vk_digest: vk.digest(),
@@ -567,12 +566,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformSNARKTrait<G> for R1CSSNARK<
   }
 }
 
-
 impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSSNARK<G, EE> {
   #[tracing::instrument(skip_all, name = "SNARK::setup_uniform")]
   fn setup_precommitted<C: Circuit<G::Scalar>>(
     circuit: C,
-    num_steps: usize, 
+    num_steps: usize,
   ) -> Result<(UniformProverKey<G, EE>, UniformVerifierKey<G, EE>), SpartanError> {
     let mut cs: ShapeCS<G> = ShapeCS::new();
     let _ = circuit.synthesize(&mut cs);
@@ -580,13 +578,14 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
-    let vk: UniformVerifierKey<G, EE> = UniformVerifierKey::new(vk_ee, S.clone(), num_steps, num_cons_total, num_vars_total);
+    let vk: UniformVerifierKey<G, EE> =
+      UniformVerifierKey::new(vk_ee, S.clone(), num_steps, num_cons_total, num_vars_total);
 
     let pk = UniformProverKey {
       ck,
       pk_ee,
       S,
-      num_steps, 
+      num_steps,
       num_cons_total,
       num_vars_total,
       vk_digest: vk.digest(),

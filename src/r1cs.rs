@@ -1,7 +1,10 @@
 //! This module defines R1CS related types and a folding scheme for Relaxed R1CS
 #![allow(clippy::type_complexity)]
 use crate::{
-  errors::SpartanError, traits::{commitment::CommitmentEngineTrait, Group, TranscriptReprTrait}, utils::mul_0_1_optimized, Commitment, CommitmentKey, CE
+  errors::SpartanError,
+  traits::{commitment::CommitmentEngineTrait, Group, TranscriptReprTrait},
+  utils::mul_0_1_optimized,
+  Commitment, CommitmentKey, CE,
 };
 use core::{cmp::max, marker::PhantomData};
 use ff::Field;
@@ -146,7 +149,6 @@ impl<G: Group> R1CSShape<G> {
     // This is safe since we know that `M` is valid
     let sparse_matrix_vec_product =
       |M: &Vec<(usize, usize, G::Scalar)>, num_rows: usize, z: &[G::Scalar]| -> Vec<G::Scalar> {
-
         // Parallelism strategy below splits the (row, column, value) tuples into num_threads different chunks.
         // It is assumed that the tuples are (row, column) ordered. We exploit this fact to create a mutex over
         // each of the chunks and assume that only one of the threads will be writing to each chunk at a time
@@ -159,7 +161,8 @@ impl<G: Group> R1CSShape<G> {
         let mut chunks: Vec<std::sync::Mutex<Vec<G::Scalar>>> = Vec::with_capacity(num_threads);
         let mut remaining_rows = num_rows;
         (0..num_threads).for_each(|i| {
-          if i == num_threads - 1 { // the final chunk may be smaller
+          if i == num_threads - 1 {
+            // the final chunk may be smaller
             let inner = std::sync::Mutex::new(vec![G::Scalar::ZERO; remaining_rows]);
             chunks.push(inner);
           } else {
@@ -174,40 +177,42 @@ impl<G: Group> R1CSShape<G> {
 
         let span = tracing::span!(tracing::Level::TRACE, "all_chunks_multiplication");
         let _enter = span.enter();
-        M.par_chunks(thread_chunk_size).for_each(|sub_matrix: &[(usize, usize, G::Scalar)]| {
-          let (init_row, init_col, init_val) = sub_matrix[0];
-          let mut prev_chunk_index = get_chunk(init_row);
-          let curr_row_index = get_index(init_row);
-          let mut curr_chunk = chunks[prev_chunk_index].lock().unwrap();
+        M.par_chunks(thread_chunk_size)
+          .for_each(|sub_matrix: &[(usize, usize, G::Scalar)]| {
+            let (init_row, init_col, init_val) = sub_matrix[0];
+            let mut prev_chunk_index = get_chunk(init_row);
+            let curr_row_index = get_index(init_row);
+            let mut curr_chunk = chunks[prev_chunk_index].lock().unwrap();
 
-          curr_chunk[curr_row_index] += init_val * z[init_col];
+            curr_chunk[curr_row_index] += init_val * z[init_col];
 
-          let span_a = tracing::span!(tracing::Level::TRACE, "chunk_multiplication");
-          let _enter_b = span_a.enter();
-          for (row, col, val) in sub_matrix.iter().skip(1) {
-            let curr_chunk_index = get_chunk(*row);
-            if prev_chunk_index != curr_chunk_index { // only unlock the mutex again if required
-              drop(curr_chunk); // drop the curr_chunk before waiting for the next to avoid race condition
-              let new_chunk = chunks[curr_chunk_index].lock().unwrap();
-              curr_chunk = new_chunk;
+            let span_a = tracing::span!(tracing::Level::TRACE, "chunk_multiplication");
+            let _enter_b = span_a.enter();
+            for (row, col, val) in sub_matrix.iter().skip(1) {
+              let curr_chunk_index = get_chunk(*row);
+              if prev_chunk_index != curr_chunk_index {
+                // only unlock the mutex again if required
+                drop(curr_chunk); // drop the curr_chunk before waiting for the next to avoid race condition
+                let new_chunk = chunks[curr_chunk_index].lock().unwrap();
+                curr_chunk = new_chunk;
 
-              prev_chunk_index = curr_chunk_index;
+                prev_chunk_index = curr_chunk_index;
+              }
+
+              if z[*col].is_zero_vartime() {
+                continue;
+              }
+
+              let m = if z[*col].eq(&G::Scalar::ONE) {
+                *val
+              } else if val.eq(&G::Scalar::ONE) {
+                z[*col]
+              } else {
+                *val * z[*col]
+              };
+              curr_chunk[get_index(*row)] += m;
             }
-
-            if z[*col].is_zero_vartime() { 
-              continue; 
-            }
-
-            let m = if z[*col].eq(&G::Scalar::ONE) {
-              *val
-            } else if val.eq(&G::Scalar::ONE) {
-              z[*col]
-            } else {
-              *val * z[*col]
-            };
-            curr_chunk[get_index(*row)] += m;
-          }
-        });
+          });
         drop(_enter);
         drop(span);
 
@@ -221,7 +226,6 @@ impl<G: Group> R1CSShape<G> {
         }
         drop(_enter_a);
         drop(span_a);
-
 
         flat_chunks
       };
@@ -242,35 +246,53 @@ impl<G: Group> R1CSShape<G> {
   #[tracing::instrument(skip_all, name = "R1CSShape::multiply_vec_uniform")]
   pub fn multiply_vec_uniform(
     &self,
-    z: &[G::Scalar],
+    W: &[G::Scalar],
+    X: &[G::Scalar],
     num_steps: usize,
   ) -> Result<(Vec<G::Scalar>, Vec<G::Scalar>, Vec<G::Scalar>), SpartanError> {
-    if z.len() != (self.num_io + self.num_vars) * num_steps + 1 {
+    if W.len() + X.len() != (self.num_io + self.num_vars) * num_steps {
       return Err(SpartanError::InvalidWitnessLength);
     }
-    
+
+    // Simulates the `z` vector containing the full satisfying assignment
+    //     [W, 1, X]
+    // without actually concatenating W and X, which would be expensive.
+    let virtual_z_vector = |index: usize| {
+      if index < W.len() {
+        W[index]
+      } else if index == W.len() {
+        G::Scalar::ONE
+      } else {
+        X[index - W.len() - 1]
+      }
+    };
+
     // Pre-processes matrix to return the indices of the start of each row
     let get_row_pointers = |M: &Vec<(usize, usize, G::Scalar)>| -> Vec<usize> {
       let mut indptr = vec![0; self.num_cons + 1];
       for &(row, _, _) in M {
-          indptr[row + 1] += 1;
+        indptr[row + 1] += 1;
       }
       for i in 0..self.num_cons {
-          indptr[i + 1] += indptr[i];
+        indptr[i + 1] += indptr[i];
       }
       indptr
     };
 
     // Multiplies one constraint (row from small M) and its uniform copies with the vector z into result
-    let multiply_row_vec_uniform = |R: &[(usize, usize, G::Scalar)], result: &mut [G::Scalar], num_steps: usize| {
-      for &(_, col, val) in R {
-        if col == self.num_vars {
-          result.par_iter_mut().for_each(|x| *x += val);
-        } else {
-          result.par_iter_mut().enumerate().for_each(|(i, x)| *x += mul_0_1_optimized(&val, &z[col * num_steps + i]));
+    let multiply_row_vec_uniform =
+      |R: &[(usize, usize, G::Scalar)], result: &mut [G::Scalar], num_steps: usize| {
+        for &(_, col, val) in R {
+          if col == self.num_vars {
+            result.par_iter_mut().for_each(|x| *x += val);
+          } else {
+            result.par_iter_mut().enumerate().for_each(|(i, x)| {
+              let z_index = col * num_steps + i;
+              *x += mul_0_1_optimized(&val, &virtual_z_vector(z_index));
+            });
+          }
         }
-      }
-    };
+      };
 
     // computes a product between a sparse uniform matrix represented by `M` and a vector `z`
     let sparse_matrix_vec_product_uniform =
@@ -279,14 +301,20 @@ impl<G: Group> R1CSShape<G> {
 
         let mut result: Vec<G::Scalar> = vec![G::Scalar::ZERO; num_steps * num_rows];
 
-        let span = tracing::span!(tracing::Level::TRACE, "sparse_matrix_vec_product_uniform::multiply_row_vecs");
+        let span = tracing::span!(
+          tracing::Level::TRACE,
+          "sparse_matrix_vec_product_uniform::multiply_row_vecs"
+        );
         let _enter = span.enter();
-        result.par_chunks_mut(num_steps).enumerate().for_each(|(row_index, row_output)| {
-              let row = &M[row_pointers[row_index]..row_pointers[row_index + 1]];
-              multiply_row_vec_uniform(row, row_output, num_steps);
-        });
+        result
+          .par_chunks_mut(num_steps)
+          .enumerate()
+          .for_each(|(row_index, row_output)| {
+            let row = &M[row_pointers[row_index]..row_pointers[row_index + 1]];
+            multiply_row_vec_uniform(row, row_output, num_steps);
+          });
 
-        result 
+        result
       };
 
     let (mut Az, (mut Bz, mut Cz)) = rayon::join(
@@ -301,12 +329,14 @@ impl<G: Group> R1CSShape<G> {
 
     // pad each Az, Bz, Cz to the next power of 2
     let m = max(Az.len(), max(Bz.len(), Cz.len())).next_power_of_two();
-    rayon::join( 
+    rayon::join(
       || Az.resize(m, G::Scalar::ZERO),
-      || rayon::join(
-        || Bz.resize(m, G::Scalar::ZERO),
-        || Cz.resize(m, G::Scalar::ZERO)
-      )
+      || {
+        rayon::join(
+          || Bz.resize(m, G::Scalar::ZERO),
+          || Cz.resize(m, G::Scalar::ZERO),
+        )
+      },
     );
 
     Ok((Az, Bz, Cz))
@@ -493,7 +523,6 @@ impl<G: Group> R1CSShape<G> {
       C: C_padded,
     }
   }
-
 
   /// Same as above but can have different length of constraints and num_variables
   pub fn pad_vars(&self) -> Self {
