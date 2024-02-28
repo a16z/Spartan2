@@ -279,10 +279,11 @@ impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
     while sparse_read_index < self.Z.len() {
       let a = self.Z[sparse_read_index];
 
-      // Check if high is related to low
-      if sparse_read_index != self.Z.len() - 1 && a.0 == self.Z[sparse_read_index+1].0 - 1  && a.0 % 2 == 0 {
+      // Case where both low, high are non-sparse.
+      if sparse_read_index != self.Z.len() - 1 
+          && a.0 == self.Z[sparse_read_index+1].0 - 1  
+          && a.0 % 2 == 0 {
         let b = self.Z[sparse_read_index+1];
-
 
         self.Z[sparse_write_index] = (a.0/ 2, a.1 + *r * (b.1 - a.1));
         sparse_read_index += 2;
@@ -299,11 +300,6 @@ impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
         sparse_write_index += 1;
       }
 
-      // if a.0 % 2 == 0 && i != self.Z.len() - 1 && self.Z[i+1].0 == a.0 {
-      //   // This case, we care about the double situation
-      // } else {
-
-      // }
     }
     self.num_vars -= 1;
     self.Z.truncate(sparse_write_index);
