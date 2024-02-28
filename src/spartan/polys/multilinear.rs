@@ -87,6 +87,41 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
     self.num_vars -= 1;
   }
 
+  /// TODO: Documentation
+  #[tracing::instrument(skip_all, name = "MultilinearPolynomial::bound_poly_var_top")]
+  pub fn bound_poly_var_bot(&mut self, r: &Scalar) {
+    let n = self.len() / 2;
+    for i in 0..n {
+        self.Z[i] = self.Z[2 * i] + *r * (self.Z[2 * i + 1] - self.Z[2 * i]);
+    }
+    self.num_vars -= 1;
+    self.Z.resize(n, Scalar::ZERO);
+  }
+
+  /// TODO: Documentation
+  #[tracing::instrument(skip_all, name = "MultilinearPolynomial::bound_poly_var_top")]
+  pub fn bound_poly_var_bot_zero_optimized(&mut self, r: &Scalar) {
+    let n = self.len() / 2;
+    for i in 0..n {
+      let low = self.Z[2 * i];
+      let high = self.Z[2 * i + 1];
+      let low_zero = low == Scalar::ZERO;
+      let high_zero = high == Scalar::ZERO;
+
+      if low_zero && high_zero {
+        self.Z[i] = Scalar::ZERO;
+      } else if low_zero {
+        self.Z[i] = *r * high;
+      } else if high_zero {
+        self.Z[i] = low + *r * (- high);
+      } else {
+        self.Z[i] = low + *r * (high - low);
+      }
+    }
+    self.num_vars -= 1;
+    self.Z.resize(n, Scalar::ZERO);
+  }
+
   /// Bounds the polynomial's most significant index bit to 'r' optimized for a 
   /// high P(eval = 0).
   #[tracing::instrument(skip_all)]
@@ -196,12 +231,14 @@ impl<Scalar: PrimeField> Index<usize> for MultilinearPolynomial<Scalar> {
 /// For example, the evaluations are [0, 0, 0, 1, 0, 1, 0, 2].
 /// The sparse polynomial only store the non-zero values, [(3, 1), (5, 1), (7, 2)].
 /// In the tuple, the first is index, the second is value.
-pub(crate) struct SparsePolynomial<Scalar: PrimeField> {
+#[derive(Debug, Clone)]
+pub struct SparsePolynomial<Scalar: PrimeField> {
   num_vars: usize,
   Z: Vec<(usize, Scalar)>,
 }
 
 impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
+  /// TODO:Documentation.
   pub fn new(num_vars: usize, Z: Vec<(usize, Scalar)>) -> Self {
     SparsePolynomial { num_vars, Z }
   }
@@ -221,7 +258,7 @@ impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
     chi_i
   }
 
-  // Takes O(n log n)
+  /// Takes O(n log n)
   pub fn evaluate(&self, r: &[Scalar]) -> Scalar {
     assert_eq!(self.num_vars, r.len());
 
@@ -232,6 +269,56 @@ impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
         SparsePolynomial::compute_chi(&bits, r) * self.Z[i].1
       })
       .sum()
+  }
+
+  /// TODO: Documentation
+  #[tracing::instrument(skip_all, name = "SparsePolynomial::bound_poly_var_bot")]
+  pub fn bound_poly_var_bot(&mut self, r: &Scalar) {
+    let mut sparse_read_index = 0;
+    let mut sparse_write_index = 0;
+    while sparse_read_index < self.Z.len() {
+      let a = self.Z[sparse_read_index];
+
+      // Check if high is related to low
+      if sparse_read_index != self.Z.len() - 1 && a.0 == self.Z[sparse_read_index+1].0 - 1  && a.0 % 2 == 0 {
+        let b = self.Z[sparse_read_index+1];
+
+
+        self.Z[sparse_write_index] = (a.0/ 2, a.1 + *r * (b.1 - a.1));
+        sparse_read_index += 2;
+        sparse_write_index += 1;
+      } else {
+
+        if a.0 % 2 == 0 { // low
+          self.Z[sparse_write_index] = (a.0 / 2, a.1 + *r * (-a.1));
+        } else { // high
+          self.Z[sparse_write_index] = (a.0 / 2, *r * a.1);
+        }
+
+        sparse_read_index += 1;
+        sparse_write_index += 1;
+      }
+
+      // if a.0 % 2 == 0 && i != self.Z.len() - 1 && self.Z[i+1].0 == a.0 {
+      //   // This case, we care about the double situation
+      // } else {
+
+      // }
+    }
+    self.num_vars -= 1;
+    self.Z.truncate(sparse_write_index);
+  }
+
+  /// TODO: Document.
+  pub fn to_dense(self) -> MultilinearPolynomial<Scalar> {
+    let total_entries = 1 << self.num_vars;
+    let mut evals = vec![Scalar::ZERO; total_entries];
+
+    for sparse_entry in self.Z {
+      evals[sparse_entry.0] = sparse_entry.1;
+    }
+
+    MultilinearPolynomial::new(evals)
   }
 }
 
@@ -379,5 +466,48 @@ mod tests {
     test_evaluation_with::<Fp>();
     test_evaluation_with::<provider::bn256_grumpkin::bn256::Scalar>();
     test_evaluation_with::<provider::secp_secq::secp256k1::Scalar>();
+  }
+
+  use ff::Field;
+
+  fn gen_dense_sparse_poly<F: PrimeField>(num_vars: usize, pct_sparse: f64) -> (MultilinearPolynomial<F>, SparsePolynomial<F>) {
+    let num_entries: usize = 1 << num_vars;
+    let mut dense_evals = Vec::new();
+    let mut sparse_entries: Vec<(usize, F)> = Vec::new();
+  
+    for dense_index in 0..num_entries {
+      let chance: f64 = rand::random();
+      if chance > pct_sparse {
+        let random_fp = F::random(&mut rand::thread_rng());
+        dense_evals.push(random_fp);
+        sparse_entries.push((dense_index, random_fp));
+      } else {
+        dense_evals.push(F::ZERO);
+      }
+    }
+  
+    (MultilinearPolynomial::new(dense_evals), SparsePolynomial::new(num_vars, sparse_entries))
+  }
+
+  #[test]
+  fn test_sparse_parity() {
+    let num_vars = 8;
+    let pct_sparse: f64 = 0.6;
+
+    let (dense, sparse) = gen_dense_sparse_poly::<Fp>(num_vars, pct_sparse);
+    assert_eq!(dense, sparse.to_dense());
+  }
+
+  #[test]
+  fn test_sparse_parity_bound_bot() {
+    let num_vars = 8;
+    let pct_sparse: f64 = 0.6;
+
+    let (mut dense, mut sparse) = gen_dense_sparse_poly::<Fp>(num_vars, pct_sparse);
+
+    let r = Fp::random(&mut rand::thread_rng());
+    dense.bound_poly_var_bot(&r);
+    sparse.bound_poly_var_bot(&r);
+    assert_eq!(dense, sparse.to_dense());
   }
 }

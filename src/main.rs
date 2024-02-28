@@ -1,10 +1,43 @@
+use spartan2::provider::bn256_grumpkin::bn256::Scalar as BnFp;
+use ff::Field;
+use clap::{Parser, CommandFactory};
+use rayon::prelude::*;
+
+/// Configuration for the application
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Flag to run sparse benchmark in parallel
+    #[arg(short, long)]
+    sparse_poly: bool,
+
+    /// Flag to run circuits
+    #[arg(short, long)]
+    circuits: bool,
+}
+
 fn main() {
-    let circuits = vec![
-        Sha256Circuit::new(vec![0u8; 1 << 12]),
-    ];
+    let args = Args::parse();
 
     let (chrome_layer, _guard) = ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
+
+    if args.sparse_poly {
+        run_sparse_bench_parallel(20, 0.7, 32);
+    } else if args.circuits {
+        run_circuits();
+    } else {
+        Args::command().print_help().expect("Failed to print help information");
+        std::process::exit(1);
+    }
+
+    drop(_guard);
+}
+
+fn run_circuits() {
+    let circuits = vec![
+        Sha256Circuit::new(vec![0u8; 1 << 12]),
+    ];
 
     for circuit in circuits {
         let span = tracing::info_span!("SpartanProve-Sha256-message-len", len = circuit.preimage.len());
@@ -12,8 +45,6 @@ fn main() {
 
         run_circuit(circuit);
     }
-
-    drop(_guard);
 }
 
 fn run_circuit(circuit: Sha256Circuit<<G as Group>::Scalar>) {
@@ -32,6 +63,70 @@ fn run_circuit(circuit: Sha256Circuit<<G as Group>::Scalar>) {
     println!("Time elapsed is: {:?}", duration);
 }
 
+fn gen_dense_sparse_poly(num_vars: usize, pct_sparse: f64) -> (MultilinearPolynomial<BnFp>, SparsePolynomial<BnFp>) {
+  let num_entries: usize = 1 << num_vars;
+  let mut dense_evals = Vec::new();
+  let mut sparse_entries: Vec<(usize, BnFp)> = Vec::new();
+
+  for dense_index in 0..num_entries {
+    let chance: f64 = rand::random();
+    if chance > pct_sparse {
+      let random_fp = BnFp::random(&mut rand::thread_rng());
+      dense_evals.push(random_fp);
+      sparse_entries.push((dense_index, random_fp));
+    } else {
+      dense_evals.push(BnFp::zero());
+    }
+  }
+
+  (MultilinearPolynomial::new(dense_evals), SparsePolynomial::new(num_vars, sparse_entries))
+}
+
+
+fn run_sparse_bench_parallel(num_vars: usize, pct_sparse: f64, parallelism: usize) {
+  let mut dense_polys: Vec<MultilinearPolynomial<BnFp>> = Vec::new();
+  let mut sparse_polys: Vec<SparsePolynomial<BnFp>> = Vec::new();
+
+  for _ in 0..parallelism {
+    let (dense, sparse) = gen_dense_sparse_poly(num_vars, pct_sparse);
+    dense_polys.push(dense);
+    sparse_polys.push(sparse);
+  }
+
+  let r = BnFp::random(&mut rand::thread_rng());
+  let dense_start = std::time::Instant::now();
+  let mut dense_regular = dense_polys.clone();
+  dense_regular.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_bot(&r));
+  let dense_duration = dense_start.elapsed();
+  println!("Time elapsed for bounding dense polynomials: {:?}", dense_duration);
+
+  let dense_start = std::time::Instant::now();
+  let mut dense_zero_optimized = dense_polys.clone();
+  dense_zero_optimized.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_bot_zero_optimized(&r));
+  let dense_duration = dense_start.elapsed();
+  println!("Time elapsed for bounding dense polynomials zero optimized: {:?}", dense_duration);
+
+  let sparse_start = std::time::Instant::now();
+  let mut sparse_regular = sparse_polys.clone();
+  sparse_regular.par_iter_mut().for_each(|sparse_poly| sparse_poly.bound_poly_var_bot(&r));
+  let sparse_duration = sparse_start.elapsed();
+  println!("Time elapsed for bounding sparse polynomials: {:?}", sparse_duration);
+
+  for i in 0..parallelism {
+    // assert_eq!(dense_regular[i], dense_zero_optimized[i]);
+    assert_eq!(dense_regular[i], sparse_regular[i].clone().to_dense());
+  }
+
+
+
+
+  // Items to attempt
+  // - Regular bound_poly_var_bot
+  // - 0 / 1 optimized
+  // - High parallelism bound_poly_var_bot
+  // 
+}
+
 use bellpepper::gadgets::{sha256::sha256, Assignment};
 use bellpepper_core::{
   boolean::{AllocatedBit, Boolean},
@@ -40,7 +135,7 @@ use bellpepper_core::{
 };
 use ff::{PrimeField, PrimeFieldBits};
 use sha2::{Digest, Sha256};
-use spartan2::{SNARK, traits::Group};
+use spartan2::{spartan::polys::multilinear::{MultilinearPolynomial, SparsePolynomial}, traits::Group, SNARK};
 use tracing_chrome::ChromeLayerBuilder;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::marker::PhantomData;

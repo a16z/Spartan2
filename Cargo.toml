@@ -38,6 +38,8 @@ tracing = "0.1.40"
 sha2 = "0.10.7"
 tracing-chrome = "0.7.1"
 tracing-subscriber = "0.3.18"
+rand = "0.8.4"
+clap = { version = "4.5.1", features = ["derive"] }
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 pasta-msm = { version = "0.1.4" }

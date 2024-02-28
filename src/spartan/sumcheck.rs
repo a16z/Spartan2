@@ -10,6 +10,8 @@ use ff::Field;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::polys::multilinear::SparsePolynomial;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub(crate) struct SumcheckProof<G: Group> {
@@ -291,6 +293,58 @@ impl<G: Group> SumcheckProof<G> {
       r,
       vec![poly_A[0], poly_B[0]],
     ))
+  }
+
+  #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad_sparse")]
+  pub fn prove_quad_sparse<F>(
+    _claim: &G::Scalar,
+    _num_rounds: usize,
+    _poly_A: &mut SparsePolynomial<G::Scalar>,
+    _poly_B: &mut SparsePolynomial<G::Scalar>,
+    _comb_func: F,
+    _transcript: &mut G::TE,
+  ) -> Result<(Self, Vec<G::Scalar>, Vec<G::Scalar>), SpartanError>
+  where
+    F: Fn(&G::Scalar, &G::Scalar) -> G::Scalar + Sync,
+  {
+    todo!("finish");
+    // let mut r: Vec<G::Scalar> = Vec::new();
+    // let mut polys: Vec<CompressedUniPoly<G::Scalar>> = Vec::new();
+    // let mut claim_per_round = *claim;
+    // for _ in 0..num_rounds {
+    //   let poly = {
+    //     let (eval_point_0, eval_point_2) =
+    //       Self::compute_eval_points_quadratic(poly_A, poly_B, &comb_func);
+
+    //     let evals = vec![eval_point_0, claim_per_round - eval_point_0, eval_point_2];
+    //     UniPoly::from_evals(&evals)
+    //   };
+
+    //   // append the prover's message to the transcript
+    //   transcript.absorb(b"p", &poly);
+
+    //   //derive the verifier's challenge for the next round
+    //   let r_i = transcript.squeeze(b"c")?;
+    //   r.push(r_i);
+    //   polys.push(poly.compress());
+
+    //   // Set up next round
+    //   claim_per_round = poly.evaluate(&r_i);
+
+    //   // bound all tables to the verifier's challenege
+    //   rayon::join(
+    //     || poly_A.bound_poly_var_top(&r_i),
+    //     || poly_B.bound_poly_var_top(&r_i),
+    //   );
+    // }
+
+    // Ok((
+    //   SumcheckProof {
+    //     compressed_polys: polys,
+    //   },
+    //   r,
+    //   vec![poly_A[0], poly_B[0]],
+    // ))
   }
 
   #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad_batch")]

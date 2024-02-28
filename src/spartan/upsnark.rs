@@ -384,7 +384,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     // println!("u.X");
     // count_zeros_ones_in_poly(&u.X);
 
-
+    let mut z = [w.W.clone(), vec![1.into()], u.X].concat();
+    let poly_z = {
+      z.resize(pk.num_vars_total * 2, G::Scalar::ZERO);
+      z
+    };
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
       if *poly_A_comp == G::Scalar::ZERO || *poly_B_comp == G::Scalar::ZERO {
           G::Scalar::ZERO
@@ -392,12 +396,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
           *poly_A_comp * *poly_B_comp
       }
     };
-    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_unrolled(
+    let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
       num_rounds_y,
       &mut MultilinearPolynomial::new(poly_ABC), // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
-      &w.W,
-      &u.X,
+      &mut MultilinearPolynomial::new(poly_z),
       comb_func,
       &mut transcript,
     )?;
