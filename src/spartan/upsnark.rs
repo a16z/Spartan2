@@ -243,12 +243,22 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       )
     };
 
-    let comb_func_outer =
-      |poly_A_comp: &G::Scalar,
-       poly_B_comp: &G::Scalar,
-       poly_C_comp: &G::Scalar,
-       poly_D_comp: &G::Scalar|
-       -> G::Scalar { *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) };
+    let comb_func_outer = |poly_A_comp: &G::Scalar,
+                           poly_B_comp: &G::Scalar,
+                           poly_C_comp: &G::Scalar,
+                           poly_D_comp: &G::Scalar|
+     -> G::Scalar {
+      if *poly_B_comp == G::Scalar::ZERO || *poly_C_comp == G::Scalar::ZERO {
+        if *poly_D_comp == G::Scalar::ZERO {
+          G::Scalar::ZERO
+        } else {
+          *poly_A_comp * (-(*poly_D_comp))
+        }
+      } else {
+        *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp)
+      }
+    };
+
     let (sc_proof_outer, r_x, claims_outer) = SumcheckProof::prove_cubic_with_additive_term(
       &G::Scalar::ZERO, // claim is zero
       num_rounds_x,
@@ -279,7 +289,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       let (rx_con, rx_ts) = r_x.split_at(r_x.len() - NUM_STEPS_BITS as usize);
       let eq_rx_con = EqPolynomial::new(rx_con.to_vec()).evals();
       let eq_rx_ts = EqPolynomial::new(rx_ts.to_vec()).evals();
-
+      
       let N_STEPS = pk.num_steps;
 
       // With uniformity, each entry of the RLC of A, B, C can be expressed using
@@ -349,7 +359,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
     drop(span);
 
     let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
-      *poly_A_comp * *poly_B_comp
+      if *poly_A_comp == G::Scalar::ZERO || *poly_B_comp == G::Scalar::ZERO {
+        G::Scalar::ZERO
+      } else {
+        *poly_A_comp * *poly_B_comp
+      }
     };
     let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_unrolled(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C

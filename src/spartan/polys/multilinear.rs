@@ -14,7 +14,10 @@ use rayon::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::spartan::{math::Math, polys::eq::EqPolynomial};
+use crate::{
+  spartan::{math::Math, polys::eq::EqPolynomial},
+  utils::mul_0_1_optimized,
+};
 
 /// A multilinear extension of a polynomial $Z(\cdot)$, denote it as $\tilde{Z}(x_1, ..., x_m)$
 /// where the degree of each variable is at most one.
@@ -87,6 +90,26 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
     self.num_vars -= 1;
   }
 
+  /// Bounds the polynomial's most significant index bit to 'r' optimized for a
+  /// high P(eval = 0).
+  #[tracing::instrument(skip_all)]
+  pub fn bound_poly_var_top_zero_optimized(&mut self, r: &Scalar) {
+    let n = self.len() / 2;
+
+    let (left, right) = self.Z.split_at_mut(n);
+
+    left
+      .par_iter_mut()
+      .zip(right.par_iter())
+      .filter(|(&mut a, &b)| a != b)
+      .for_each(|(a, b)| {
+        *a += *r * (*b - *a);
+      });
+
+    self.Z.resize(n, Scalar::ZERO);
+    self.num_vars -= 1;
+  }
+
   /// Evaluates the polynomial at the given point.
   /// Returns Z(r) in O(n) time.
   ///
@@ -144,11 +167,14 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
       EqPolynomial::<Scalar>::compute_factored_lens(Z.len().ilog2() as usize);
     let R_size = (2_usize).pow(right_num_vars as u32);
 
-    Z
-      .par_chunks(R_size)
+    Z.par_chunks(R_size)
       .enumerate()
-      // TODO(moodlezoup): optimize for 0/1
-      .map(|(i, row)| row.iter().map(|x| L[i] * x).collect::<Vec<Scalar>>())
+      .map(|(i, row)| {
+        row
+          .iter()
+          .map(|x| mul_0_1_optimized(&L[i], x))
+          .collect::<Vec<Scalar>>()
+      })
       .reduce(
         || vec![Scalar::ZERO; R_size],
         |mut acc: Vec<_>, row| {
