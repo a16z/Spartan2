@@ -87,6 +87,28 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
     self.num_vars -= 1;
   }
 
+  /// Bounds the polynomial's most significant index bit to 'r' optimized for a 
+  /// high P(eval = 0).
+  #[tracing::instrument(skip_all)]
+  pub fn bound_poly_var_top_zero_optimized(&mut self, r: &Scalar) {
+    let n = self.len() / 2;
+
+    let (left, right) = self.Z.split_at_mut(n);
+    let (right, _) = right.split_at(n);
+
+    left
+      .par_iter_mut()
+      .zip(right.par_iter())
+      .for_each(|(a, b)| {
+        if !(*a == Scalar::ZERO && *b == Scalar::ZERO) {
+          *a += *r * (*b - *a);
+        }
+      });
+
+    self.Z.resize(n, Scalar::ZERO);
+    self.num_vars -= 1;
+  }
+
   /// Evaluates the polynomial at the given point.
   /// Returns Z(r) in O(n) time.
   ///
