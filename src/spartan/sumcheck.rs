@@ -172,7 +172,7 @@ impl<G: Group> SumcheckProof<G> {
 
     // bound all tables to the verifier's challenge
     let (_, mut poly_B) = rayon::join(
-      || poly_A.bound_poly_var_top(&r_i),
+      || poly_A.bound_poly_var_top_zero_optimized(&r_i),
       || {
         // Simulates `poly_B.bound_poly_var_top(&r_i)`
         // We need to do this because we don't actually have 
@@ -190,7 +190,15 @@ impl<G: Group> SumcheckProof<G> {
         let right_iter = Z_iter.skip(len).take(len);
         let B = left_iter
           .zip(right_iter)
-          .map(|(a, b)| *a + r_i * (*b - *a))
+          .map(|(a, b)| {
+            if *a == G::Scalar::ZERO && *b == G::Scalar::ZERO {
+              G::Scalar::ZERO
+            } else if *a == G::Scalar::ZERO {
+              r_i * *b
+            } else {
+              *a + r_i * (*b - *a)
+            }
+          })
           .collect();
         MultilinearPolynomial::new(B)
       },
@@ -220,8 +228,8 @@ impl<G: Group> SumcheckProof<G> {
 
       // bound all tables to the verifier's challenege
       rayon::join(
-        || poly_A.bound_poly_var_top(&r_i),
-        || poly_B.bound_poly_var_top(&r_i),
+        || poly_A.bound_poly_var_top_zero_optimized(&r_i),
+        || poly_B.bound_poly_var_top_zero_optimized(&r_i),
       );
     }
 
@@ -440,11 +448,11 @@ impl<G: Group> SumcheckProof<G> {
         || poly_A.bound_poly_var_top(&r_i),
         || {
           rayon::join(
-            || poly_B.bound_poly_var_top(&r_i),
+            || poly_B.bound_poly_var_top_zero_optimized(&r_i),
             || {
               rayon::join(
-                || poly_C.bound_poly_var_top(&r_i),
-                || poly_D.bound_poly_var_top(&r_i),
+                || poly_C.bound_poly_var_top_zero_optimized(&r_i),
+                || poly_D.bound_poly_var_top_zero_optimized(&r_i),
               )
             },
           )
