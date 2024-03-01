@@ -3,6 +3,8 @@ use crate::{errors::SpartanError, traits::Group}; //, CommitmentKey, Commitment}
 use bellpepper_core::Circuit;
 use serde::{Deserialize, Serialize};
 use crate::traits::snark::RelaxedR1CSSNARKTrait;
+use crate::{CommitmentKey, Commitment}; 
+
 
 /// A SNARK that derives the R1CS Shape given a single step's shape 
 pub trait UniformSNARKTrait<G: Group>:
@@ -20,13 +22,20 @@ pub trait PrecommittedSNARKTrait<G: Group>:
   Sized + Send + Sync + Serialize + for<'de> Deserialize<'de> + UniformSNARKTrait<G> 
 {
   /// Setup that takes in the generators used to pre-committed the witness 
-  /// TODO(arasuarun): currently just sets up the circuit with variable-wise uniformity
   fn setup_precommitted<C: Circuit<G::Scalar>>(
     circuit: C,
     num_steps: usize,
+    ck: CommitmentKey<G>,
   ) -> Result<(Self::ProverKey, Self::VerifierKey), SpartanError>;
 
-//   /// Produces a new SNARK for a relaxed R1CS
-//   // fn prove_precommitted<C: Circuit<G::Scalar>>(pk: &Self::ProverKey, circuit: C, comm_W: Commitment<G>) -> Result<Self, SpartanError>;
-//   fn prove_precommitted<C: Circuit<G::Scalar>>(pk: &Self::ProverKey, circuit: C, comm_W: Commitment<G>) -> Result<Self, SpartanError>;
+  /// Produces a new SNARK for a relaxed R1CS
+  fn prove_precommitted<C: Circuit<G::Scalar>>(
+    pk: &Self::ProverKey, 
+    circuit: C, 
+    w_segments: Vec<Vec<G::Scalar>>,
+    comm_w: Vec<Commitment<G>>, 
+  ) -> Result<Self, SpartanError>;
+
+  /// Verifies a SNARK for a relaxed R1CS
+  fn verify_precommitted(&self, vk: &Self::VerifierKey, io: &[G::Scalar]) -> Result<(), SpartanError>;
 }
