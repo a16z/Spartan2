@@ -17,8 +17,23 @@ use serde::{Deserialize, Serialize};
 /// A type that holds commitment generators
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitmentKey<G: Group> {
-  ck: Vec<G::PreprocessedGroupElement>,
+  /// Commitment key
+  pub ck: Vec<G::PreprocessedGroupElement>,
 }
+
+impl<G: Group> CommitmentKey<G> {
+  /// Creates a new commitment key from preprocessed generators
+  pub fn from_preprocessed_gens<SpartanAffine: halo2curves::CurveAffine>(generators: Vec<SpartanAffine>) -> Self
+  where G::PreprocessedGroupElement: From<SpartanAffine> {
+    let ck: Vec<G::PreprocessedGroupElement> = generators.into_iter().map(|g| {
+      g.into()
+    }).collect();
+    Self {
+      ck, 
+    }
+  }
+}
+
 
 /// A type that holds a commitment
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
