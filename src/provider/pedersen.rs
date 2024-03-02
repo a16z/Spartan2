@@ -24,7 +24,10 @@ pub struct CommitmentKey<G: Group> {
 impl<G: Group> CommitmentKey<G> {
   /// Creates a new commitment key from preprocessed generators
   pub fn from_preprocessed_gens<SpartanAffine: halo2curves::CurveAffine>(generators: Vec<SpartanAffine>) -> Self
-  where G::PreprocessedGroupElement: From<SpartanAffine> {
+  // Arasu: we need to bridge SpartanAffine and G::PreprocessedGroupElement using something like this? 
+  // If you uncomment the line below, Spartan will not compile. 
+  // where G::PreprocessedGroupElement: From<SpartanAffine> 
+  {
     let ck: Vec<G::PreprocessedGroupElement> = generators.into_iter().map(|g| {
       g.into()
     }).collect();
