@@ -31,7 +31,8 @@ use std::marker::PhantomData;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct HyraxCommitmentKey<G: Group> {
-  ck: PedersenCommitmentKey<G>,
+  /// ck
+  pub ck: PedersenCommitmentKey<G>,
 }
 
 /// Structure that holds commitments
