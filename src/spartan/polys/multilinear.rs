@@ -241,7 +241,7 @@ pub struct SparsePolynomial<Scalar: PrimeField> {
   /// 
   pub num_vars: usize,
   ///
-  pub Z: Vec<(usize, Scalar)>,
+  pub Z: Vec<(usize, Scalar)>
 }
 
 impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
@@ -336,6 +336,78 @@ impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
 
     Self::new(dense.num_vars, entries)
   }
+}
+
+/// Number of lanes over which this SparseParPolynomial is chunked – ideal number 
+/// ~= num_threads / (num polys in parallel)
+/// Likely also want some slop for Rayon workstealing.
+pub const SPARSE_CHUNKS: usize = 32;
+
+/// TODO: I AM A FUCKING STRUCT.
+#[derive(Debug, Clone)]
+pub struct SparseParPolynomial<Scalar: PrimeField> {
+  /// 
+  pub num_vars: usize,
+  ///
+  pub Z: [Vec<(usize, Scalar)>; SPARSE_CHUNKS],
+}
+
+impl<Scalar: PrimeField> SparseParPolynomial<Scalar> {
+  /// TODO:Documentation.
+  pub fn from_non_par(non_par: SparsePolynomial<Scalar>) -> Self {
+    let len = 1 << non_par.num_vars;
+    let chunk_size = len / SPARSE_CHUNKS;
+
+    // TODO(sragss): Interm solution to figure out what to do with chunking.
+    let mut chunked_Z = core::array::from_fn(|_| Vec::new());
+    for (sparse_index, value) in non_par.Z {
+      let chunk = sparse_index / chunk_size;
+      chunked_Z[chunk].push((sparse_index, value));
+    }
+
+    SparseParPolynomial { num_vars: non_par.num_vars, Z: chunked_Z }
+  }
+
+    /// TODO: Documentation
+    #[tracing::instrument(skip_all, name = "SparsePolynomial::bound_poly_var_bot")]
+    pub fn bound_poly_var_bot(&mut self, r: &Scalar) {
+      self.Z.par_iter_mut().for_each(|Z| {
+        let mut sparse_read_index = 0;
+        let mut sparse_write_index = 0;
+        while sparse_read_index < Z.len() {
+          let a = Z[sparse_read_index];
+    
+          // Case where both low, high are non-sparse.
+          if sparse_read_index != Z.len() - 1 
+              && a.0 == Z[sparse_read_index+1].0 - 1  
+              && a.0 % 2 == 0 {
+            let b = Z[sparse_read_index+1];
+    
+            Z[sparse_write_index] = (a.0/ 2, a.1 + *r * (b.1 - a.1));
+            sparse_read_index += 2;
+            sparse_write_index += 1;
+          } else {
+    
+            // if a.0 % 2 == 0 { // low
+            //   Z[sparse_write_index] = (a.0 / 2, a.1 + *r * (-a.1));
+            // } else { // high
+            //   Z[sparse_write_index] = (a.0 / 2, *r * a.1);
+            // }
+            if a.0 % 2 == 0 { // low
+              Z[sparse_write_index] = (a.0 / 2, (Scalar::ONE - *r) * a.1);
+            } else { // high
+              Z[sparse_write_index] = (a.0 / 2, *r * a.1);
+            }
+    
+            sparse_read_index += 1;
+            sparse_write_index += 1;
+          }
+    
+        }
+        Z.truncate(sparse_write_index);
+      });
+      self.num_vars -= 1;
+    }
 }
 
 /// Adds another multilinear polynomial to `self`.
