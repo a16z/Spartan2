@@ -270,6 +270,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       &mut transcript,
     )?;
 
+    std::thread::spawn(|| drop(poly_Az));
+    std::thread::spawn(|| drop(poly_Bz));
+    std::thread::spawn(|| drop(poly_Cz));
+    std::thread::spawn(|| drop(poly_tau));
+
     // claims from the end of sum-check
     // claim_Az is the (scalar) value v_A = \sum_y A(r_x, y) * z(r_x) where r_x is the sumcheck randomness
     let (claim_Az, claim_Bz): (G::Scalar, G::Scalar) = (claims_outer[1], claims_outer[2]);
@@ -365,15 +370,18 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
         *poly_A_comp * *poly_B_comp
       }
     };
+    let mut poly_ABC = MultilinearPolynomial::new(poly_ABC);
     let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_unrolled(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
       num_rounds_y,
-      &mut MultilinearPolynomial::new(poly_ABC), // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
+      &mut poly_ABC, // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
       &w.W,
       &u.X,
       comb_func,
       &mut transcript,
     )?;
+
+    std::thread::spawn(|| drop(poly_ABC));
 
     // Hack: the evaluation is populated in `HyraxEvaluationEngine::prove`
     // This will not work if `EE`` is not `HyraxEvaluationEngine`.
