@@ -404,7 +404,7 @@ impl<Scalar: PrimeField> SparseParPolynomial<Scalar> {
           }
     
         }
-        // Z.resize(sparse_write_index, (0, Scalar::ZERO));
+        Z.truncate(sparse_write_index);
       });
       self.num_vars -= 1;
     }

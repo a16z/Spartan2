@@ -32,11 +32,26 @@ fn main() {
         println!("\n\nSparse polynomial binding bench 2^26 evals, 70% sparse, 2 polys in parallel");
         run_sparse_bench_parallel(26, 0.7, 2);
 
-        println!("\n\nSparse polynomial binding bench 2^26 evals, 70% sparse, 3 polys in parallel");
-        run_sparse_bench_parallel(26, 0.7, 3);
-
         println!("\n\nSparse polynomial binding bench 2^26 evals, 70% sparse, 4 polys in parallel");
         run_sparse_bench_parallel(26, 0.7, 4);
+
+        println!("\n\nSparse polynomial binding bench 2^26 evals, 90% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(26, 0.9, 2);
+
+        println!("\n\nSparse polynomial binding bench 2^26 evals, 80% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(26, 0.8, 2);
+
+        println!("\n\nSparse polynomial binding bench 2^26 evals, 60% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(26, 0.6, 2);
+
+        println!("\n\nSparse polynomial binding bench 2^26 evals, 50% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(26, 0.5, 2);
+
+        println!("\n\nSparse polynomial binding bench 2^26 evals, 40% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(26, 0.4, 2);
+
+        println!("\n\nSparse polynomial binding bench 2^26 evals, 30% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(26, 0.3, 2);
     } else if args.circuits {
         run_circuits();
     } else {
