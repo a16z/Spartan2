@@ -341,7 +341,7 @@ impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
 /// Number of lanes over which this SparseParPolynomial is chunked – ideal number 
 /// ~= num_threads / (num polys in parallel)
 /// Likely also want some slop for Rayon workstealing.
-pub const SPARSE_CHUNKS: usize = 32;
+pub const SPARSE_CHUNKS: usize = 64;
 
 /// TODO: I AM A FUCKING STRUCT.
 #[derive(Debug, Clone)]
@@ -378,9 +378,9 @@ impl<Scalar: PrimeField> SparseParPolynomial<Scalar> {
           let a = Z[sparse_read_index];
     
           // Case where both low, high are non-sparse.
-          if sparse_read_index != Z.len() - 1 
-              && a.0 == Z[sparse_read_index+1].0 - 1  
-              && a.0 % 2 == 0 {
+          if a.0 % 2 == 0
+              && sparse_read_index != Z.len() - 1
+              && a.0 == Z[sparse_read_index+1].0 - 1  {
             let b = Z[sparse_read_index+1];
     
             Z[sparse_write_index] = (a.0/ 2, a.1 + *r * (b.1 - a.1));
@@ -404,7 +404,7 @@ impl<Scalar: PrimeField> SparseParPolynomial<Scalar> {
           }
     
         }
-        Z.truncate(sparse_write_index);
+        // Z.resize(sparse_write_index, (0, Scalar::ZERO));
       });
       self.num_vars -= 1;
     }
