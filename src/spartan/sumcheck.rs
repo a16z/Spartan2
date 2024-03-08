@@ -92,7 +92,7 @@ impl<G: Group> SumcheckProof<G> {
       )
   }
 
-  #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad")]
+  #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad_unrolled")]
   // A fork of `prove_quad` with the 0th round unrolled from the rest of the
   // for loop. This allows us to pass in `W` and `X` as references instead of
   // passing them in as a single `MultilinearPolynomial`, which would require
@@ -225,12 +225,15 @@ impl<G: Group> SumcheckProof<G> {
       );
     }
 
+    let evals = vec![poly_A[0], poly_B[0]];
+    std::thread::spawn(|| drop(poly_B));
+
     Ok((
       SumcheckProof {
         compressed_polys: polys,
       },
       r,
-      vec![poly_A[0], poly_B[0]],
+      evals
     ))
   }
 
