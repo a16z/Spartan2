@@ -94,11 +94,18 @@ fn run_sparse_bench_parallel(num_vars: usize, pct_sparse: f64, parallelism: usiz
   }
 
   let r = BnFp::random(&mut rand::thread_rng());
+
+  let dense_top_start = std::time::Instant::now();
+  let mut dense_top= dense_polys.clone();
+  dense_top.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_top(&r));
+  let dense_top_duration = dense_top_start.elapsed();
+  println!("Time elapsed for bounding dense polynomials (top): {:?}", dense_top_duration);
+
   let dense_start = std::time::Instant::now();
   let mut dense_regular = dense_polys.clone();
   dense_regular.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_bot(&r));
   let dense_duration = dense_start.elapsed();
-  println!("Time elapsed for bounding dense polynomials: {:?}", dense_duration);
+  println!("Time elapsed for bounding dense polynomials (bot): {:?}", dense_duration);
 
   let dense_start = std::time::Instant::now();
   let mut dense_zero_optimized = dense_polys.clone();

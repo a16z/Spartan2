@@ -225,6 +225,11 @@ impl<Scalar: PrimeField> Index<usize> for MultilinearPolynomial<Scalar> {
   }
 }
 
+// SPARSITY TODO:
+// - ParChunkIndices: Store some power of 2 worth of Dense indices (16 / 32 / 64) in order to allow parallelism
+// - DualSparseIter – takes 2 mutable slice references
+// - Issue now: I can read in correct chunks, but can't write in correct chunks on binding
+
 /// Sparse multilinear polynomial, which means the $Z(\cdot)$ is zero at most points.
 /// So we do not have to store every evaluations of $Z(\cdot)$, only store the non-zero points.
 ///
@@ -233,8 +238,10 @@ impl<Scalar: PrimeField> Index<usize> for MultilinearPolynomial<Scalar> {
 /// In the tuple, the first is index, the second is value.
 #[derive(Debug, Clone)]
 pub struct SparsePolynomial<Scalar: PrimeField> {
-  num_vars: usize,
-  Z: Vec<(usize, Scalar)>,
+  /// 
+  pub num_vars: usize,
+  ///
+  pub Z: Vec<(usize, Scalar)>,
 }
 
 impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
@@ -315,6 +322,19 @@ impl<Scalar: PrimeField> SparsePolynomial<Scalar> {
     }
 
     MultilinearPolynomial::new(evals)
+  }
+
+  /// TODO: Document.
+  pub fn from_dense(dense: MultilinearPolynomial<Scalar>) -> Self {
+    let mut entries: Vec<(usize, Scalar)> = Vec::new();
+
+    for (dense_index, dense_entry) in dense.Z.iter().enumerate() {
+      if *dense_entry != Scalar::ZERO {
+        entries.push((dense_index, *dense_entry));
+      }
+    }
+
+    Self::new(dense.num_vars, entries)
   }
 }
 

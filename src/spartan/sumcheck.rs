@@ -297,24 +297,53 @@ impl<G: Group> SumcheckProof<G> {
 
   #[tracing::instrument(skip_all, name = "Spartan2::sumcheck::prove_quad_sparse")]
   pub fn prove_quad_sparse<F>(
-    _claim: &G::Scalar,
-    _num_rounds: usize,
-    _poly_A: &mut SparsePolynomial<G::Scalar>,
-    _poly_B: &mut SparsePolynomial<G::Scalar>,
-    _comb_func: F,
-    _transcript: &mut G::TE,
+    claim: &G::Scalar,
+    num_rounds: usize,
+    poly_A: &mut SparsePolynomial<G::Scalar>,
+    poly_B: &mut SparsePolynomial<G::Scalar>,
+    comb_func: F,
+    transcript: &mut G::TE,
   ) -> Result<(Self, Vec<G::Scalar>, Vec<G::Scalar>), SpartanError>
   where
     F: Fn(&G::Scalar, &G::Scalar) -> G::Scalar + Sync,
   {
-    todo!("finish");
-    // let mut r: Vec<G::Scalar> = Vec::new();
-    // let mut polys: Vec<CompressedUniPoly<G::Scalar>> = Vec::new();
-    // let mut claim_per_round = *claim;
+    let mut r: Vec<G::Scalar> = Vec::new();
+    let mut polys: Vec<CompressedUniPoly<G::Scalar>> = Vec::new();
+    let mut claim_per_round = *claim;
+
+    // TODO(sragss): How do I iterate over the sparse polynomials in parallel?
+    // - An iterator that holds references to both sparse_evals
+    // - It also has a "current pair" for each, and knows how to return (index, (Option<&low>, Option<&high>), (Option<&low>, Option<&high>))
+    // - Simply has a .next() function
+    // Main issue: parallelizing becomes non-trival
+    // Options
+    // - Dense map strategy -- maybe the only approach
+    // - Sparse map strategy -- only show the ranges of dense indices [1,4,12,30,43] -- can iterate over this thing and create indexable chunks efficiently.
+
+    // chunk_size = len / PARALLELISM
+    // - Chunking array: Store [sparse_index(dense[0..CHUNK_SIZE]), sparse_index(dense[CHUNK_SIZE..2*CHUNK_SIZE]), ... sparse_idnex(dense)]
+    // Now each of these chunks will have a different length, but we'll let the relevant dual iterators deal with that shit.
+    todo!("everything")
+
     // for _ in 0..num_rounds {
     //   let poly = {
-    //     let (eval_point_0, eval_point_2) =
-    //       Self::compute_eval_points_quadratic(poly_A, poly_B, &comb_func);
+    //     let len = poly_A.len() / 2;
+    //     let (eval_point_0, eval_point_2) = (0..len)
+    //       .into_par_iter()
+    //       .map(|i| {
+    //         // eval 0: bound_func is A(low)
+    //         let eval_point_0 = comb_func(&poly_A[i], &poly_B[i]);
+
+    //         // eval 2: bound_func is -A(low) + 2*A(high)
+    //         let poly_A_bound_point = poly_A[len + i] + poly_A[len + i] - poly_A[i];
+    //         let poly_B_bound_point = poly_B[len + i] + poly_B[len + i] - poly_B[i];
+    //         let eval_point_2 = comb_func(&poly_A_bound_point, &poly_B_bound_point);
+    //         (eval_point_0, eval_point_2)
+    //       })
+    //       .reduce(
+    //         || (G::Scalar::ZERO, G::Scalar::ZERO),
+    //         |a, b| (a.0 + b.0, a.1 + b.1),
+    //       );
 
     //     let evals = vec![eval_point_0, claim_per_round - eval_point_0, eval_point_2];
     //     UniPoly::from_evals(&evals)

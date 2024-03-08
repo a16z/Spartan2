@@ -396,6 +396,9 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
           *poly_A_comp * *poly_B_comp
       }
     };
+
+    // TODO(sragss): Create a sparse version of the polynomial
+
     let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad(
       &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
       num_rounds_y,
