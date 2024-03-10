@@ -164,6 +164,9 @@ fn run_sparse_bench_parallel(num_vars: usize, pct_sparse: f64, parallelism: usiz
     assert_eq!(dense_regular[i], sparse_regular[i].clone().to_dense());
   }
 
+  let ratio = dense_top_duration.as_secs_f64() / sparse_duration.as_secs_f64();
+  println!("SparseParPoly improvement over zero-optimized bound-top: {:.3}x", ratio);
+
 
 
 

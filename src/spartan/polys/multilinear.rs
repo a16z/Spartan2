@@ -369,45 +369,42 @@ impl<Scalar: PrimeField> SparseParPolynomial<Scalar> {
   }
 
     /// TODO: Documentation
-    #[tracing::instrument(skip_all, name = "SparsePolynomial::bound_poly_var_bot")]
-    pub fn bound_poly_var_bot(&mut self, r: &Scalar) {
+  #[tracing::instrument(skip_all, name = "SparsePolynomial::bound_poly_var_bot")]
+  pub fn bound_poly_var_bot(&mut self, r: &Scalar) {
+      let one_minus_r = Scalar::ONE - *r;
+
       self.Z.par_iter_mut().for_each(|Z| {
-        let mut sparse_read_index = 0;
-        let mut sparse_write_index = 0;
-        while sparse_read_index < Z.len() {
-          let a = Z[sparse_read_index];
-    
-          // Case where both low, high are non-sparse.
-          if a.0 % 2 == 0
-              && sparse_read_index != Z.len() - 1
-              && a.0 == Z[sparse_read_index+1].0 - 1  {
-            let b = Z[sparse_read_index+1];
-    
-            Z[sparse_write_index] = (a.0/ 2, a.1 + *r * (b.1 - a.1));
-            sparse_read_index += 2;
-            sparse_write_index += 1;
-          } else {
-    
-            // if a.0 % 2 == 0 { // low
-            //   Z[sparse_write_index] = (a.0 / 2, a.1 + *r * (-a.1));
-            // } else { // high
-            //   Z[sparse_write_index] = (a.0 / 2, *r * a.1);
-            // }
-            if a.0 % 2 == 0 { // low
-              Z[sparse_write_index] = (a.0 / 2, (Scalar::ONE - *r) * a.1);
-            } else { // high
-              Z[sparse_write_index] = (a.0 / 2, *r * a.1);
-            }
-    
-            sparse_read_index += 1;
-            sparse_write_index += 1;
+          let mut sparse_read_index = 0;
+          let mut sparse_write_index = 0;
+
+          while sparse_read_index < Z.len() {
+              let a = Z[sparse_read_index];
+              let is_low = a.0 % 2 == 0;
+
+              let mut new_value = if is_low {
+                  (a.0 / 2, one_minus_r * a.1)
+              } else {
+                  (a.0 / 2, *r * a.1)
+              };
+
+              let is_mergeable = is_low && sparse_read_index + 1 < Z.len() && a.0 + 1 == Z[sparse_read_index + 1].0;
+
+              if is_mergeable {
+                  let b = Z[sparse_read_index + 1];
+                  new_value.1 += *r * b.1;
+                  sparse_read_index += 1;
+              }
+
+              Z[sparse_write_index] = new_value;
+              sparse_write_index += 1;
+              sparse_read_index += 1;
           }
-    
-        }
-        Z.truncate(sparse_write_index);
+
+          Z.truncate(sparse_write_index);
       });
+
       self.num_vars -= 1;
-    }
+  }
 }
 
 /// Adds another multilinear polynomial to `self`.
