@@ -250,7 +250,6 @@ impl<G: Group> R1CSShape<G> {
     X: &[G::Scalar],
     num_steps: usize,
   ) -> Result<(Vec<G::Scalar>, Vec<G::Scalar>, Vec<G::Scalar>), SpartanError> {
-<<<<<<< HEAD
     if W.len() + X.len() != (self.num_io + self.num_vars) * num_steps {
       return Err(SpartanError::InvalidWitnessLength);
     }
@@ -268,12 +267,6 @@ impl<G: Group> R1CSShape<G> {
       }
     };
 
-=======
-    // if z.len() != (self.num_io + self.num_vars) * num_steps + 1 {
-    //   return Err(SpartanError::InvalidWitnessLength);
-    // }
-    
->>>>>>> aac138f (working precommitted)
     // Pre-processes matrix to return the indices of the start of each row
     let get_row_pointers = |M: &Vec<(usize, usize, G::Scalar)>| -> Vec<usize> {
       let mut indptr = vec![0; self.num_cons + 1];
