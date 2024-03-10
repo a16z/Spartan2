@@ -19,6 +19,7 @@ use crate::{
   Commitment, CommitmentKey,
 };
 use core::ops::{Add, AddAssign, Mul, MulAssign};
+use crate::provider::bn256_grumpkin::bn256;
 use itertools::{
   EitherOrBoth::{Both, Left, Right},
   Itertools,
@@ -56,6 +57,16 @@ impl<G: Group> Default for HyraxCommitment<G> {
     HyraxCommitment {
       comm: vec![],
       is_default: true,
+    }
+  }
+}
+
+impl From<Vec<bn256::Affine>> for HyraxCommitment<bn256::Point> {
+  fn from(v: Vec<bn256::Affine>) -> Self {
+
+    HyraxCommitment {
+      comm: v.iter().map(|x| PedersenCommitment::from(*x)).collect_vec(),
+      is_default: false,
     }
   }
 }

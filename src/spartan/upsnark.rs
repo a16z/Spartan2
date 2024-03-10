@@ -225,7 +225,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
 
     let (num_rounds_x, num_rounds_y) = (
       usize::try_from(pk.num_cons_total.ilog2()).unwrap(),
-      (usize::try_from(pk.num_vars_total.ilog2()).unwrap() + 1),
+      (usize::try_from(pk.num_vars_total.ilog2()).unwrap() + 1), // doubled because IO is padded to be equal to W later
     );
 
     // outer sum-check
@@ -913,6 +913,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
 
 
     // verify claim_inner_final
+    // this should be log (num segments)
     let N_PREFIX = (vk.num_vars_total.trailing_zeros() as usize - vk.num_steps.trailing_zeros() as usize) + 1;
 
     let eval_Z = {

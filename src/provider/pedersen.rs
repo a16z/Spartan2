@@ -85,6 +85,15 @@ impl<G: Group> Default for Commitment<G> {
   }
 }
 
+impl From<bn256::Affine> for Commitment<bn256::Point> {
+  fn from(v: bn256::Affine) -> Self {
+
+    Commitment {
+      comm: v.into(),
+    }
+  }
+}
+
 impl<G: Group> TranscriptReprTrait<G> for Commitment<G> {
   fn to_transcript_bytes(&self) -> Vec<u8> {
     let (x, y, is_infinity) = self.comm.to_coordinates();
