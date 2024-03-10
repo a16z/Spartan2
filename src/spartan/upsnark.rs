@@ -15,7 +15,6 @@ use crate::{
   },
   digest::{DigestComputer, SimpleDigestible},
   errors::SpartanError,
-  r1cs::{R1CSInstance, R1CSShape},
   r1cs::{PrecommittedR1CSInstance, PrecommittedR1CSWitness, R1CSInstance, R1CSShape},
   spartan::{
     polys::{eq::EqPolynomial, multilinear::{MultilinearPolynomial, SparsePolynomial}},
@@ -402,7 +401,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> RelaxedR1CSSNARKTrait<G> for R1CSSN
       sc_proof_outer,
       claims_outer: (claim_Az, claim_Bz, claim_Cz),
       sc_proof_inner,
-      eval_W: vec![eval_W],
+      eval_W: vec![], // Hack from above?
       eval_arg,
     })
   }
@@ -658,7 +657,6 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
       let mut w_full = w.W.iter().flat_map(|segment| segment.clone()).collect::<Vec<G::Scalar>>();
       w_full.extend(vec![G::Scalar::ZERO; pk.num_vars_total - w_full.len()]);
-      let mut z = [w_full, vec![1.into()], u.X.clone()].concat();
 
 
       let (num_rounds_x, num_rounds_y) = (
@@ -674,7 +672,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       let mut poly_tau = MultilinearPolynomial::new(EqPolynomial::new(tau).evals());
       // poly_Az is the polynomial extended from the vector Az 
       let (mut poly_Az, mut poly_Bz, mut poly_Cz) = {
-        let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec_uniform(&z, pk.num_steps)?;
+        let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec_uniform(&w_full, &u.X, pk.num_steps)?;
         (
           MultilinearPolynomial::new(poly_Az),
           MultilinearPolynomial::new(poly_Bz),
@@ -782,6 +780,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       drop(_enter);
       drop(span);
   
+      let mut z = [w_full, vec![1.into()], u.X.clone()].concat();
       let poly_z = {
         z.resize(pk.num_vars_total * 2, G::Scalar::ZERO);
         z
@@ -825,7 +824,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
         &u.c, 
         &w.p, 
         &r_y_point, 
-        &u.e
+        &mut Some(u.e),
       )?;
 
       Ok(R1CSSNARK {
