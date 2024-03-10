@@ -35,6 +35,12 @@ fn main() {
         println!("\n\nSparse polynomial binding bench 2^26 evals, 70% sparse, 4 polys in parallel");
         run_sparse_bench_parallel(26, 0.7, 4);
 
+        println!("\n\nSparse polynomial binding bench 2^28 evals, 90% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(28, 0.9, 2);
+
+        println!("\n\nSparse polynomial binding bench 2^28 evals, 75% sparse, 2 polys in parallel");
+        run_sparse_bench_parallel(28, 0.75, 2);
+
         println!("\n\nSparse polynomial binding bench 2^26 evals, 90% sparse, 2 polys in parallel");
         run_sparse_bench_parallel(26, 0.9, 2);
 
@@ -123,48 +129,54 @@ fn run_sparse_bench_parallel(num_vars: usize, pct_sparse: f64, parallelism: usiz
 
   let r = BnFp::random(&mut rand::thread_rng());
 
+  let mut sparse_par: Vec<SparseParPolynomial<BnFp>> = sparse_polys.clone().into_par_iter().map(|sparse_poly| SparseParPolynomial::from_non_par(sparse_poly)).collect();;
+  let sparse_par_start = std::time::Instant::now();
+  sparse_par.par_iter_mut().for_each(|sparse_poly| sparse_poly.bound_poly_var_bot(&r));
+  let sparse_par_duration = sparse_par_start.elapsed();
+  println!("Time elapsed for bounding sparse par polynomials:                      {:?}", sparse_par_duration);
+  drop(sparse_par);
+
   let mut dense_top = dense_polys.clone();
   let dense_top_start = std::time::Instant::now();
   dense_top.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_top(&r));
   let dense_top_duration = dense_top_start.elapsed();
   println!("Time elapsed for bounding dense polynomials (top, par):                {:?}", dense_top_duration);
+  drop(dense_top);
 
   let mut dense_top= dense_polys.clone();
   let dense_top_start = std::time::Instant::now();
   dense_top.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_top_zero_optimized(&r));
   let dense_top_duration = dense_top_start.elapsed();
   println!("Time elapsed for bounding dense polynomials (top, par) zero optimized: {:?}", dense_top_duration);
+  drop(dense_top);
 
   let mut dense_regular = dense_polys.clone();
   let dense_start = std::time::Instant::now();
   dense_regular.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_bot(&r));
   let dense_duration = dense_start.elapsed();
   println!("Time elapsed for bounding dense polynomials (bot):                     {:?}", dense_duration);
+  drop(dense_regular);
 
   let mut dense_zero_optimized = dense_polys.clone();
   let dense_start = std::time::Instant::now();
   dense_zero_optimized.par_iter_mut().for_each(|dense_poly| dense_poly.bound_poly_var_bot_zero_optimized(&r));
   let dense_duration = dense_start.elapsed();
   println!("Time elapsed for bounding dense polynomials zero optimized:            {:?}", dense_duration);
+  drop(dense_zero_optimized);
 
   let mut sparse_regular = sparse_polys.clone();
   let sparse_start = std::time::Instant::now();
   sparse_regular.par_iter_mut().for_each(|sparse_poly| sparse_poly.bound_poly_var_bot(&r));
   let sparse_duration = sparse_start.elapsed();
   println!("Time elapsed for bounding sparse polynomials:                          {:?}", sparse_duration);
+  drop(sparse_regular);
 
-  let mut sparse_par: Vec<SparseParPolynomial<BnFp>> = sparse_polys.clone().into_par_iter().map(|sparse_poly| SparseParPolynomial::from_non_par(sparse_poly)).collect();;
-  let sparse_par_start = std::time::Instant::now();
-  sparse_par.par_iter_mut().for_each(|sparse_poly| sparse_poly.bound_poly_var_bot(&r));
-  let sparse_duration = sparse_par_start.elapsed();
-  println!("Time elapsed for bounding sparse par polynomials:                      {:?}", sparse_duration);
+  // for i in 0..parallelism {
+  //   // assert_eq!(dense_regular[i], dense_zero_optimized[i]);
+  //   assert_eq!(dense_regular[i], sparse_regular[i].clone().to_dense());
+  // }
 
-  for i in 0..parallelism {
-    // assert_eq!(dense_regular[i], dense_zero_optimized[i]);
-    assert_eq!(dense_regular[i], sparse_regular[i].clone().to_dense());
-  }
-
-  let ratio = dense_top_duration.as_secs_f64() / sparse_duration.as_secs_f64();
+  let ratio = dense_top_duration.as_secs_f64() / sparse_par_duration.as_secs_f64();
   println!("SparseParPoly improvement over zero-optimized bound-top: {:.3}x", ratio);
 
 

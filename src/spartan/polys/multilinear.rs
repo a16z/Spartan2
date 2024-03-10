@@ -345,53 +345,74 @@ pub const SPARSE_CHUNKS: usize = 64;
 
 /// TODO: I AM A FUCKING STRUCT.
 #[derive(Debug, Clone)]
+/// Sparse Parallel Polynomial structure
 pub struct SparseParPolynomial<Scalar: PrimeField> {
-  /// 
+  /// Number of variables in the polynomial
   pub num_vars: usize,
-  ///
+  /// Sparse representation of the polynomial, chunked for parallel processing
   pub Z: [Vec<(usize, Scalar)>; SPARSE_CHUNKS],
+  /// Lengths of the chunks in Z
+  pub Z_lens: Vec<usize>,
 }
 
 impl<Scalar: PrimeField> SparseParPolynomial<Scalar> {
-  /// TODO:Documentation.
+  /// Creates a new SparseParPolynomial.
+  ///
+  /// # Arguments
+  ///
+  /// * `num_vars` - The number of variables in the polynomial.
+  /// * `Z` - A chunked sparse representation of the polynomial for parallel processing.
+  /// * `Z_lens` - The lengths of the chunks in `Z`.
+  pub fn new(num_vars: usize, Z: [Vec<(usize, Scalar)>; SPARSE_CHUNKS], Z_lens: Vec<usize>) -> Self {
+    SparseParPolynomial { num_vars, Z, Z_lens }
+  }
+
+
+  /// Converts a non-parallel SparsePolynomial to a SparseParPolynomial.
   pub fn from_non_par(non_par: SparsePolynomial<Scalar>) -> Self {
     let len = 1 << non_par.num_vars;
     let chunk_size = len / SPARSE_CHUNKS;
 
-    // TODO(sragss): Interm solution to figure out what to do with chunking.
     let mut chunked_Z = core::array::from_fn(|_| Vec::new());
+    let mut Z_lens = vec![0; SPARSE_CHUNKS];
     for (sparse_index, value) in non_par.Z {
       let chunk = sparse_index / chunk_size;
       chunked_Z[chunk].push((sparse_index, value));
+      Z_lens[chunk] += 1;
     }
 
-    SparseParPolynomial { num_vars: non_par.num_vars, Z: chunked_Z }
+    SparseParPolynomial { num_vars: non_par.num_vars, Z: chunked_Z, Z_lens }
   }
 
-    /// TODO: Documentation
+  /// Binds the bottom variable of the polynomial to a given value.
+  ///
+  /// # Arguments
+  ///
+  /// * `r` - The value to bind the bottom variable to.
   #[tracing::instrument(skip_all, name = "SparsePolynomial::bound_poly_var_bot")]
   pub fn bound_poly_var_bot(&mut self, r: &Scalar) {
       let one_minus_r = Scalar::ONE - *r;
 
-      self.Z.par_iter_mut().for_each(|Z| {
+      self.Z.par_iter_mut().zip(&mut self.Z_lens).for_each(|(Z, Z_len)| {
           let mut sparse_read_index = 0;
           let mut sparse_write_index = 0;
 
-          while sparse_read_index < Z.len() {
-              let a = Z[sparse_read_index];
-              let is_low = a.0 % 2 == 0;
+          while sparse_read_index < *Z_len {
+              let bottom = Z[sparse_read_index];
+              let top = if sparse_read_index + 1 < *Z_len { Z[sparse_read_index + 1] } else { (0, Scalar::ZERO) };
+              
+              let is_low = bottom.0 % 2 == 0;
 
               let mut new_value = if is_low {
-                  (a.0 / 2, one_minus_r * a.1)
+                  (bottom.0 / 2, one_minus_r * bottom.1)
               } else {
-                  (a.0 / 2, *r * a.1)
+                  (bottom.0 / 2, *r * bottom.1)
               };
 
-              let is_mergeable = is_low && sparse_read_index + 1 < Z.len() && a.0 + 1 == Z[sparse_read_index + 1].0;
+              let is_mergeable = is_low && bottom.0 + 1 == top.0;
 
               if is_mergeable {
-                  let b = Z[sparse_read_index + 1];
-                  new_value.1 += *r * b.1;
+                  new_value.1 += *r * top.1;
                   sparse_read_index += 1;
               }
 
@@ -400,13 +421,12 @@ impl<Scalar: PrimeField> SparseParPolynomial<Scalar> {
               sparse_read_index += 1;
           }
 
-          Z.truncate(sparse_write_index);
+          *Z_len = sparse_write_index;
       });
 
       self.num_vars -= 1;
   }
 }
-
 /// Adds another multilinear polynomial to `self`.
 /// Assumes the two polynomials have the same number of variables.
 impl<Scalar: PrimeField> Add for MultilinearPolynomial<Scalar> {
