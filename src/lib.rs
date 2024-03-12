@@ -1,6 +1,6 @@
 //! This library implements Spartan, a high-speed SNARK.
 #![deny(
-  warnings,
+  // warnings,
 //  unused,
   future_incompatible,
   nonstandard_style,

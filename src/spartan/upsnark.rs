@@ -782,24 +782,24 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       drop(_enter);
       drop(span);
   
-      let mut z = [witness, vec![1.into()], u.X.clone()].concat();
-      let poly_z = {
-        z.resize(pk.num_vars_total * 2, G::Scalar::ZERO);
-        z
-      };
-  
       let comb_func = |poly_A_comp: &G::Scalar, poly_B_comp: &G::Scalar| -> G::Scalar {
-        *poly_A_comp * *poly_B_comp
+        if *poly_A_comp == G::Scalar::ZERO || *poly_B_comp == G::Scalar::ZERO {
+          G::Scalar::ZERO
+        } else {
+          *poly_A_comp * *poly_B_comp
+        }
       };
-      let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad(
+      let mut poly_ABC = MultilinearPolynomial::new(poly_ABC);
+      let (sc_proof_inner, r_y, _claims_inner) = SumcheckProof::prove_quad_unrolled(
         &claim_inner_joint, // r_A * v_A + r_B * v_B + r_C * v_C
         num_rounds_y,
-        &mut MultilinearPolynomial::new(poly_ABC), // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
-        &mut MultilinearPolynomial::new(poly_z), // z(y) for all y
+        &mut poly_ABC, // r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
+        &witness,
+        &u.X,
         comb_func,
         &mut transcript,
       )?;
-
+      std::thread::spawn(|| drop(poly_ABC));
 
       // The number of prefix bits needed to identify a segment within the witness vector 
       // assuming that num_vars_total is a power of 2 and each segment has length num_steps, which is also a power of 2. 
