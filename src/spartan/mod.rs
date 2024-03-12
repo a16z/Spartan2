@@ -67,9 +67,10 @@ impl<G: Group> PolyEvalWitness<G> {
     PolyEvalWitness { p }
   }
 
+  #[tracing::instrument(skip_all)]
   fn batch(p_vec: &[&Vec<G::Scalar>], s: &G::Scalar) -> PolyEvalWitness<G> {
     let powers_of_s = powers::<G>(s, p_vec.len());
-    let mut p = vec![G::Scalar::ZERO; p_vec[0].len()];
+    let mut p: Vec<<G as Group>::Scalar> = vec![G::Scalar::ZERO; p_vec[0].len()];
     for i in 0..p_vec.len() {
       for (j, item) in p.iter_mut().enumerate().take(p_vec[i].len()) {
         *item += p_vec[i][j] * powers_of_s[i]
@@ -106,6 +107,7 @@ impl<G: Group> PolyEvalInstance<G> {
     }
   }
 
+  #[tracing::instrument(skip_all)]
   fn batch(
     c_vec: &[Commitment<G>],
     x: &[G::Scalar],

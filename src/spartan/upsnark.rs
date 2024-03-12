@@ -679,12 +679,22 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
         )
       };
   
-      let comb_func_outer =
-        |poly_A_comp: &G::Scalar,
+      let comb_func_outer = |poly_A_comp: &G::Scalar,
          poly_B_comp: &G::Scalar,
          poly_C_comp: &G::Scalar,
          poly_D_comp: &G::Scalar|
-         -> G::Scalar { *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) };
+      -> G::Scalar {
+        // Below is an optimized form of: *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp)
+        if *poly_B_comp == G::Scalar::ZERO || *poly_C_comp == G::Scalar::ZERO {
+          if *poly_D_comp == G::Scalar::ZERO {
+            G::Scalar::ZERO
+          } else {
+            *poly_A_comp * (-(*poly_D_comp))
+          }
+        } else {
+          *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp)
+        }
+      };
         
       let (sc_proof_outer, r_x, claims_outer) = SumcheckProof::prove_cubic_with_additive_term(
         &G::Scalar::ZERO, // claim is zero
@@ -696,6 +706,10 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
         comb_func_outer,
         &mut transcript,
       )?;
+      std::thread::spawn(|| drop(poly_Az));
+      std::thread::spawn(|| drop(poly_Bz));
+      std::thread::spawn(|| drop(poly_Cz));
+      std::thread::spawn(|| drop(poly_tau));
   
       // claims from the end of sum-check
       // claim_Az is the (scalar) value v_A = \sum_y A(r_x, y) * z(r_x) where r_x is the sumcheck randomness 
@@ -808,15 +822,17 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       let r_y_point = &r_y[n_prefix..];
 
       // Evaluate each segment on r_y_point
-      let eval_vec = w.W.iter().map(|segment| {
+      let span = tracing::span!(tracing::Level::TRACE, "evaluate_segments");
+      let _enter = span.enter();
+      let eval_vec = w.W.par_iter().map(|segment| {
         MultilinearPolynomial::evaluate_with(segment, &r_y_point)
       }).collect::<Vec<G::Scalar>>();
-      let poly_vec = w.W.as_slice(); 
+      drop(_enter);
       let comm_vec = comm_w_vec;
 
       // now batch these together 
       let c = transcript.squeeze(b"c")?;
-      let w: PolyEvalWitness<G> = PolyEvalWitness::batch(&poly_vec.iter().map(|v| v.as_ref()).collect::<Vec<_>>(), &c);
+      let w: PolyEvalWitness<G> = PolyEvalWitness::batch(&w.W.as_slice().iter().map(|v| v.as_ref()).collect::<Vec<_>>(), &c);
       let u: PolyEvalInstance<G> = PolyEvalInstance::batch(&comm_vec, &r_y_point, &eval_vec, &c);
   
       let eval_arg = EE::prove(
@@ -829,8 +845,10 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
         &mut Some(u.e),
       )?;
 
+      let compressed_commitments = comm_vec.par_iter().map(|elem| elem.compress()).collect::<Vec<_>>();
+
       Ok(R1CSSNARK {
-        comm_W: comm_vec.iter().map(|elem| elem.compress()).collect::<Vec<_>>(),
+        comm_W: compressed_commitments,
         sc_proof_outer,
         claims_outer: (claim_Az, claim_Bz, claim_Cz),
         sc_proof_inner,
@@ -915,7 +933,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
 
     // verify claim_inner_final
     // this should be log (num segments)
-    let N_PREFIX = (vk.num_vars_total.trailing_zeros() as usize - vk.num_steps.trailing_zeros() as usize) + 1;
+    let n_prefix = (vk.num_vars_total.trailing_zeros() as usize - vk.num_steps.trailing_zeros() as usize) + 1;
 
     let eval_Z = {
       let eval_X = {
@@ -932,9 +950,9 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       };
 
       // evaluate the segments of W
-      let r_y_witness = &r_y[1..N_PREFIX]; // skip the first as it's used to separate the inputs and the witness
+      let r_y_witness = &r_y[1..n_prefix]; // skip the first as it's used to separate the inputs and the witness
       let eval_W = (0..N_SEGMENTS).map(|i| {
-        let bin = format!("{:0width$b}", i, width = N_PREFIX-1); // write i in binary using N_PREFIX bits
+        let bin = format!("{:0width$b}", i, width = n_prefix-1); // write i in binary using N_PREFIX bits
     
         let product = bin.chars().enumerate().fold(G::Scalar::ONE, |acc, (j, bit)| {
             acc * if bit == '0' {
@@ -997,7 +1015,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
     let comm_vec = comm_W_vec;
     let eval_vec = &self.eval_W; 
 
-    let r_y_point =  &r_y[N_PREFIX..]; 
+    let r_y_point =  &r_y[n_prefix..]; 
     let c = transcript.squeeze(b"c")?;
     let u: PolyEvalInstance<G> = PolyEvalInstance::batch(&comm_vec, &r_y_point, &eval_vec, &c);
 
