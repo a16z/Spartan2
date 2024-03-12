@@ -655,9 +655,8 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       transcript.absorb(b"U", &u);
   
       // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
-      let mut w_full = w.W.iter().flat_map(|segment| segment.clone()).collect::<Vec<G::Scalar>>();
-      w_full.extend(vec![G::Scalar::ZERO; pk.num_vars_total - w_full.len()]);
-
+      let mut witness = w.W.iter().flat_map(|segment| segment.clone()).collect::<Vec<G::Scalar>>();
+      witness.resize(pk.num_vars_total, G::Scalar::ZERO);
 
       let (num_rounds_x, num_rounds_y) = (
         usize::try_from(pk.num_cons_total.ilog2()).unwrap(),
@@ -672,7 +671,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       let mut poly_tau = MultilinearPolynomial::new(EqPolynomial::new(tau).evals());
       // poly_Az is the polynomial extended from the vector Az 
       let (mut poly_Az, mut poly_Bz, mut poly_Cz) = {
-        let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec_uniform(&w_full, &u.X, pk.num_steps)?;
+        let (poly_Az, poly_Bz, poly_Cz) = pk.S.multiply_vec_uniform(&witness, &u.X, pk.num_steps)?;
         (
           MultilinearPolynomial::new(poly_Az),
           MultilinearPolynomial::new(poly_Bz),
@@ -686,6 +685,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
          poly_C_comp: &G::Scalar,
          poly_D_comp: &G::Scalar|
          -> G::Scalar { *poly_A_comp * (*poly_B_comp * *poly_C_comp - *poly_D_comp) };
+        
       let (sc_proof_outer, r_x, claims_outer) = SumcheckProof::prove_cubic_with_additive_term(
         &G::Scalar::ZERO, // claim is zero
         num_rounds_x,
@@ -699,8 +699,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
   
       // claims from the end of sum-check
       // claim_Az is the (scalar) value v_A = \sum_y A(r_x, y) * z(r_x) where r_x is the sumcheck randomness 
-      let (claim_Az, claim_Bz): (G::Scalar, G::Scalar) = (claims_outer[1], claims_outer[2]);
-      let claim_Cz = claims_outer[3];
+      let (claim_Az, claim_Bz, claim_Cz): (G::Scalar, G::Scalar, G::Scalar) = (claims_outer[1], claims_outer[2], claims_outer[3]);
       transcript.absorb(
         b"claims_outer",
         &[claim_Az, claim_Bz, claim_Cz].as_slice(),
@@ -715,12 +714,14 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
   
       // this is the polynomial extended from the vector r_A * A(r_x, y) + r_B * B(r_x, y) + r_C * C(r_x, y) for all y
       let poly_ABC = {
-        let NUM_STEPS_BITS = pk.num_steps.trailing_zeros();
-        let (rx_con, rx_ts) = r_x.split_at(r_x.len() - NUM_STEPS_BITS as usize);
-        let eq_rx_con = EqPolynomial::new(rx_con.to_vec()).evals();
-        let eq_rx_ts = EqPolynomial::new(rx_ts.to_vec()).evals();
+        let num_steps_bits = pk.num_steps.trailing_zeros();
+        let (rx_con, rx_ts) = r_x.split_at(r_x.len() - num_steps_bits as usize);
+        let (eq_rx_con, eq_rx_ts) = rayon::join(
+            || EqPolynomial::new(rx_con.to_vec()).evals(),
+            || EqPolynomial::new(rx_ts.to_vec()).evals(),
+        );
   
-        let N_STEPS = pk.num_steps;
+        let n_steps = pk.num_steps;
   
         // With uniformity, each entry of the RLC of A, B, C can be expressed using 
         // the RLC of the small_A, small_B, small_C matrices.
@@ -742,13 +743,14 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
           ),
         );
   
+        let r_sq = r * r;
         let small_RLC_evals = (0..small_A_evals.len()).into_par_iter().map(|i| {
-          small_A_evals[i] + small_B_evals[i] * r + small_C_evals[i] * r * r
+          small_A_evals[i] + small_B_evals[i] * r + small_C_evals[i] * r_sq
         }).collect::<Vec<G::Scalar>>();
   
         // 2. Handles all entries but the last one with the constant 1 variable
         let mut RLC_evals: Vec<G::Scalar> = (0..pk.num_vars_total).into_par_iter().map(|col| {
-          eq_rx_ts[col % N_STEPS] * small_RLC_evals[col / N_STEPS]
+          eq_rx_ts[col % n_steps] * small_RLC_evals[col / n_steps]
         }).collect();
         let next_pow_2 = 2 * pk.num_vars_total;
         RLC_evals.resize(next_pow_2, G::Scalar::ZERO);
@@ -758,7 +760,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
           let constant_sum: G::Scalar = small_M.iter()
             .filter(|(_, col, _)| *col == pk.S.num_vars)   // expecting ~1
             .map(|(row, _, val)| {
-                let eq_sum = (0..N_STEPS).into_par_iter().map(|t| eq_rx_ts[t]).sum::<G::Scalar>();
+                let eq_sum = (0..n_steps).into_par_iter().map(|t| eq_rx_ts[t]).sum::<G::Scalar>();
                 *val * eq_rx_con[*row] * eq_sum
             }).sum();
   
@@ -780,7 +782,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       drop(_enter);
       drop(span);
   
-      let mut z = [w_full, vec![1.into()], u.X.clone()].concat();
+      let mut z = [witness, vec![1.into()], u.X.clone()].concat();
       let poly_z = {
         z.resize(pk.num_vars_total * 2, G::Scalar::ZERO);
         z
@@ -802,8 +804,8 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       // The number of prefix bits needed to identify a segment within the witness vector 
       // assuming that num_vars_total is a power of 2 and each segment has length num_steps, which is also a power of 2. 
       // The +1 is the first element used to separate the inputs and the witness. 
-      let N_PREFIX = (pk.num_vars_total.trailing_zeros() as usize - pk.num_steps.trailing_zeros() as usize) + 1;
-      let r_y_point = &r_y[N_PREFIX..];
+      let n_prefix = (pk.num_vars_total.trailing_zeros() as usize - pk.num_steps.trailing_zeros() as usize) + 1;
+      let r_y_point = &r_y[n_prefix..];
 
       // Evaluate each segment on r_y_point
       let eval_vec = w.W.iter().map(|segment| {
