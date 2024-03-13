@@ -655,8 +655,19 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       transcript.absorb(b"U", &u);
   
       // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
-      let mut witness = w.W.iter().flat_map(|segment| segment.clone()).collect::<Vec<G::Scalar>>();
+      // TODO(sragss/arasuarun/moodlezoup): We can do this by reference in prove_quad_batched_unrolled.
+      let span = tracing::span!(tracing::Level::INFO, "witness_batching");
+      let _guard = span.enter();
+      let mut witness = Vec::with_capacity(w.W.len() * w.W[0].len());
+      w.W.iter().for_each(|segment| {
+          witness.par_extend(segment);
+      });
+      drop(_guard);
+
+      let span = tracing::span!(tracing::Level::INFO, "witness_resizing");
+      let _guard = span.enter();
       witness.resize(pk.num_vars_total, G::Scalar::ZERO);
+      drop(_guard);
 
       let (num_rounds_x, num_rounds_y) = (
         usize::try_from(pk.num_cons_total.ilog2()).unwrap(),
