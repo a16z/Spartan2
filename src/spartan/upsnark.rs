@@ -824,16 +824,14 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       // Evaluate each segment on r_y_point
       let span = tracing::span!(tracing::Level::TRACE, "evaluate_segments");
       let _enter = span.enter();
-      let eval_vec = w.W.par_iter().map(|segment| {
-        MultilinearPolynomial::evaluate_with(segment, &r_y_point)
-      }).collect::<Vec<G::Scalar>>();
+      let witness_evals = MultilinearPolynomial::batch_evaluate(&w.W, &r_y_point);
       drop(_enter);
       let comm_vec = comm_w_vec;
 
       // now batch these together 
       let c = transcript.squeeze(b"c")?;
       let w: PolyEvalWitness<G> = PolyEvalWitness::batch(&w.W.as_slice().iter().map(|v| v.as_ref()).collect::<Vec<_>>(), &c);
-      let u: PolyEvalInstance<G> = PolyEvalInstance::batch(&comm_vec, &r_y_point, &eval_vec, &c);
+      let u: PolyEvalInstance<G> = PolyEvalInstance::batch(&comm_vec, &r_y_point, &witness_evals, &c);
   
       let eval_arg = EE::prove(
         &pk.ck, 
@@ -852,7 +850,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
         sc_proof_outer,
         claims_outer: (claim_Az, claim_Bz, claim_Cz),
         sc_proof_inner,
-        eval_W: eval_vec,
+        eval_W: witness_evals,
         eval_arg,
       })
     }

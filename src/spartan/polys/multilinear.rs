@@ -137,6 +137,19 @@ impl<Scalar: PrimeField> MultilinearPolynomial<Scalar> {
       .sum()
   }
 
+  /// Evaluates |Zs| different polynomials at a single point r.
+  pub fn batch_evaluate(Zs: &[Vec<Scalar>], r: &[Scalar]) -> Vec<Scalar> {
+    let chi = EqPolynomial::new(r.to_vec()).evals();
+
+    let results: Vec<Scalar> = Zs.par_iter()
+      .map(|Z| {
+        chi.par_iter().zip(Z.into_par_iter())
+        .map(|(a, b)| *a * b)
+        .sum()
+      }).collect();
+    results
+  }
+
   /// Evaluates polynomial given lagrange basis
   #[tracing::instrument(skip_all, name = "MultilinearPolynomial::evaluate_with_chi")]
   pub fn evaluate_with_chi(&self, chis: &[Scalar]) -> Scalar {
