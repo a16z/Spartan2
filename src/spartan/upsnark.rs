@@ -627,8 +627,8 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
       w_segments: Vec<Vec<G::Scalar>>,
       comm_w_vec: Vec<Commitment<G>>,
     ) -> Result<Self, SpartanError> {
-      let mut cs: SatisfyingAssignment<G> = SatisfyingAssignment::new();
-      let _ = circuit.synthesize(&mut cs);
+      // let mut cs: SatisfyingAssignment<G> = SatisfyingAssignment::new();
+      // let _ = circuit.synthesize(&mut cs);
   
       // Create a hollow shape with the right dimensions but no matrices. 
       // This is a convenience to work with Spartan's r1cs_instance_and_witness function 
