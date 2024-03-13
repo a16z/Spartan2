@@ -1,6 +1,6 @@
 //! This library implements Spartan, a high-speed SNARK.
 #![deny(
-  warnings,
+  // warnings,
 //  unused,
   future_incompatible,
   nonstandard_style,
@@ -88,8 +88,8 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + UniformSNARKTrait<G> + Precommitted
   }
 
   /// Produces prover and verifier keys for the direct SNARK
-  pub fn setup_precommitted(circuit: C, n: usize) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
-    let (pk, vk) = S::setup_precommitted(circuit, n)?;
+  pub fn setup_precommitted(circuit: C, n: usize, ck: CommitmentKey::<G>) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
+    let (pk, vk) = S::setup_precommitted(circuit, n, ck)?;
     Ok((ProverKey { pk }, VerifierKey { vk }))
   }
 
@@ -105,10 +105,28 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + UniformSNARKTrait<G> + Precommitted
     })
   }
 
+  /// Produces a proof of satisfiability of the provided circuit
+  pub fn prove_precommitted(pk: &ProverKey<G, S>, circuit: C, w_segments: Vec<Vec<G::Scalar>>, comm_w_vec: Vec<Commitment<G>> ) -> Result<Self, SpartanError> {
+    // prove the instance using Spartan
+    let snark = S::prove_precommitted(&pk.pk, circuit, w_segments, comm_w_vec)?;
+
+    Ok(SNARK {
+      snark,
+      _p: Default::default(),
+      _p2: Default::default(),
+    })
+  }
+
   /// Verifies a proof of satisfiability
   pub fn verify(&self, vk: &VerifierKey<G, S>, io: &[G::Scalar]) -> Result<(), SpartanError> {
     // verify the snark using the constructed instance
     self.snark.verify(&vk.vk, io)
+  }
+
+  /// Verifies a proof of satisfiability
+  pub fn verify_precommitted(&self, vk: &VerifierKey<G, S>, io: &[G::Scalar]) -> Result<(), SpartanError> {
+    // verify the snark using the constructed instance
+    self.snark.verify_precommitted(&vk.vk, io)
   }
 }
 

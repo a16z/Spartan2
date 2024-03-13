@@ -785,3 +785,55 @@ impl<G: Group> TranscriptReprTrait<G> for RelaxedR1CSInstance<G> {
     .concat()
   }
 }
+
+// Segmented structs for Precommitted version 
+
+/// A type that holds a witness for a given R1CS instance
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrecommittedR1CSWitness<G: Group> {
+  pub(crate) W: Vec<Vec<G::Scalar>>,
+}
+
+/// A type that holds an R1CS instance
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound = "")]
+pub struct PrecommittedR1CSInstance<G: Group> {
+  pub(crate) comm_W: Vec<Commitment<G>>,
+  pub(crate) X: Vec<G::Scalar>,
+}
+
+
+impl<G: Group> PrecommittedR1CSWitness<G> {
+  /// A method to create a witness object using a vector of scalars
+  pub fn new(_S: &R1CSShape<G>, W: Vec<Vec<G::Scalar>>) -> Result<PrecommittedR1CSWitness<G>, SpartanError> {
+    let w = PrecommittedR1CSWitness { W: W };
+    Ok(w)
+  }
+}
+
+impl<G: Group> PrecommittedR1CSInstance<G> {
+  /// A method to create an instance object using consitituent elements
+  pub fn new(
+    S: &R1CSShape<G>,
+    comm_W: Vec<Commitment<G>>,
+    X: &[G::Scalar],
+  ) -> Result<PrecommittedR1CSInstance<G>, SpartanError> {
+    if S.num_io != X.len() {
+      Err(SpartanError::InvalidInputLength)
+    } else {
+      Ok(PrecommittedR1CSInstance{
+        comm_W: comm_W,
+        X: X.to_owned(),
+      })
+    }
+  }
+}
+
+impl<G: Group> TranscriptReprTrait<G> for PrecommittedR1CSInstance<G> {
+  fn to_transcript_bytes(&self) -> Vec<u8> {
+    self.comm_W.iter()
+    .flat_map(|elem| elem.to_transcript_bytes())
+    .chain(self.X.as_slice().to_transcript_bytes())
+    .collect::<Vec<_>>()
+  }
+}

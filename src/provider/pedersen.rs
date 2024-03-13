@@ -13,12 +13,37 @@ use core::{
 };
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use super::bn256_grumpkin::bn256;
 
 /// A type that holds commitment generators
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitmentKey<G: Group> {
-  ck: Vec<G::PreprocessedGroupElement>,
+  /// Commitment key
+  pub ck: Vec<G::PreprocessedGroupElement>,
 }
+
+/// Generators ck for the bn256 curve 
+pub fn from_preprocessed_gens<SpartanAffine: halo2curves::CurveAffine>(generators: Vec<SpartanAffine>) -> CommitmentKey<bn256::Point> 
+where SpartanAffine: halo2curves::CurveAffine<Base = bn256::Base>,
+{
+  let ck: Vec<<bn256::Point as Group>::PreprocessedGroupElement> =  generators.into_iter().map(|g| {
+    let (x, y) = (*g.coordinates().unwrap().x(), *g.coordinates().unwrap().y());
+    (bn256::Affine {x: x, y: y}).into()
+  }).collect();
+
+  CommitmentKey {
+    ck,  
+  }
+}
+
+/// Generators ck for the bn256 curve 
+pub fn from_gens_bn256(generators: Vec<bn256::Affine>) -> CommitmentKey<bn256::Point> 
+{
+  CommitmentKey {
+    ck: generators  
+  }
+}
+
 
 /// A type that holds a commitment
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +82,15 @@ impl<G: Group> CommitmentTrait<G> for Commitment<G> {
 impl<G: Group> Default for Commitment<G> {
   fn default() -> Self {
     Commitment { comm: G::zero() }
+  }
+}
+
+impl From<bn256::Affine> for Commitment<bn256::Point> {
+  fn from(v: bn256::Affine) -> Self {
+
+    Commitment {
+      comm: v.into(),
+    }
   }
 }
 
