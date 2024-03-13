@@ -652,7 +652,11 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSS
   
       // append the digest of vk (which includes R1CS matrices) and the RelaxedR1CSInstance to the transcript
       transcript.absorb(b"vk", &pk.vk_digest);
+
+      let span_u = tracing::span!(tracing::Level::INFO, "absorb_u");
+      let _guard_u = span_u.enter();
       transcript.absorb(b"U", &u);
+      drop(_guard_u);
   
       // compute the full satisfying assignment by concatenating W.W, U.u, and U.X
       // TODO(sragss/arasuarun/moodlezoup): We can do this by reference in prove_quad_batched_unrolled.
