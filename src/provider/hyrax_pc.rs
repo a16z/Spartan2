@@ -95,12 +95,13 @@ impl<G: Group> CommitmentTrait<G> for HyraxCommitment<G> {
 }
 
 impl<G: Group> MulAssign<G::Scalar> for HyraxCommitment<G> {
+  #[tracing::instrument(skip_all)]
   fn mul_assign(&mut self, scalar: G::Scalar) {
     let result = (self as &HyraxCommitment<G>)
       .comm
-      .iter()
+      .par_iter()
       .map(|c| c * &scalar)
-      .collect();
+      .collect::<Vec<_>>();
     *self = HyraxCommitment {
       comm: result,
       is_default: self.is_default,
@@ -110,8 +111,10 @@ impl<G: Group> MulAssign<G::Scalar> for HyraxCommitment<G> {
 
 impl<'a, 'b, G: Group> Mul<&'b G::Scalar> for &'a HyraxCommitment<G> {
   type Output = HyraxCommitment<G>;
+
+  #[tracing::instrument(name="HyraxCommitment::mul(&scalar)", skip_all)]
   fn mul(self, scalar: &'b G::Scalar) -> HyraxCommitment<G> {
-    let result = self.comm.iter().map(|c| c * scalar).collect();
+    let result = self.comm.par_iter().map(|c| c * scalar).collect::<Vec<_>>();
     HyraxCommitment {
       comm: result,
       is_default: self.is_default,
@@ -122,8 +125,9 @@ impl<'a, 'b, G: Group> Mul<&'b G::Scalar> for &'a HyraxCommitment<G> {
 impl<G: Group> Mul<G::Scalar> for HyraxCommitment<G> {
   type Output = HyraxCommitment<G>;
 
+  #[tracing::instrument(name="HyraxCommitment::mul(scalar)", skip_all)]
   fn mul(self, scalar: G::Scalar) -> HyraxCommitment<G> {
-    let result = self.comm.iter().map(|c| c * &scalar).collect();
+    let result = self.comm.par_iter().map(|c| c * &scalar).collect::<Vec<_>>();
     HyraxCommitment {
       comm: result,
       is_default: self.is_default,
@@ -132,6 +136,7 @@ impl<G: Group> Mul<G::Scalar> for HyraxCommitment<G> {
 }
 
 impl<'b, G: Group> AddAssign<&'b HyraxCommitment<G>> for HyraxCommitment<G> {
+  #[tracing::instrument(skip_all)]
   fn add_assign(&mut self, other: &'b HyraxCommitment<G>) {
     if self.is_default {
       *self = other.clone();
@@ -147,7 +152,7 @@ impl<'b, G: Group> AddAssign<&'b HyraxCommitment<G>> for HyraxCommitment<G> {
           Left(a) => *a,
           Right(b) => *b,
         })
-        .collect();
+        .collect::<Vec<_>>();
       *self = HyraxCommitment {
         comm: result,
         is_default: self.is_default,
@@ -158,6 +163,8 @@ impl<'b, G: Group> AddAssign<&'b HyraxCommitment<G>> for HyraxCommitment<G> {
 
 impl<'a, 'b, G: Group> Add<&'b HyraxCommitment<G>> for &'a HyraxCommitment<G> {
   type Output = HyraxCommitment<G>;
+
+  #[tracing::instrument(skip_all)]
   fn add(self, other: &'b HyraxCommitment<G>) -> HyraxCommitment<G> {
     if self.is_default {
       other.clone()

@@ -589,7 +589,7 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformSNARKTrait<G> for R1CSSNARK<
 }
 
 impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSSNARK<G, EE> {
-  #[tracing::instrument(skip_all, name = "SNARK::setup_uniform")]
+  #[tracing::instrument(skip_all, name = "SNARK::setup_precommitted")]
   fn setup_precommitted<C: Circuit<G::Scalar>>(
     circuit: C,
     num_steps: usize, 

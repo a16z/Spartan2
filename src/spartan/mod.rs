@@ -71,11 +71,13 @@ impl<G: Group> PolyEvalWitness<G> {
   fn batch(p_vec: &[&Vec<G::Scalar>], s: &G::Scalar) -> PolyEvalWitness<G> {
     let powers_of_s = powers::<G>(s, p_vec.len());
     let mut p: Vec<<G as Group>::Scalar> = vec![G::Scalar::ZERO; p_vec[0].len()];
-    for i in 0..p_vec.len() {
-      for (j, item) in p.iter_mut().enumerate().take(p_vec[i].len()) {
-        *item += p_vec[i][j] * powers_of_s[i]
+    p.par_iter_mut().enumerate().for_each(|(j, item)| {
+      for i in 0..p_vec.len() {
+        if j < p_vec[i].len() {
+          *item += p_vec[i][j] * powers_of_s[i];
+        }
       }
-    }
+    });
     PolyEvalWitness { p }
   }
 }
@@ -114,22 +116,36 @@ impl<G: Group> PolyEvalInstance<G> {
     e_vec: &[G::Scalar],
     s: &G::Scalar,
   ) -> PolyEvalInstance<G> {
+    let span = tracing::span!(tracing::Level::INFO, "powers_of_s_calculation");
+    let _guard = span.enter();
     let powers_of_s = powers::<G>(s, c_vec.len());
+    drop(_guard);
+    println!("c_vec len {:?}", c_vec.len());
     let e = e_vec
       .iter()
       .zip(powers_of_s.iter())
       .map(|(e, p)| *e * p)
       .sum();
+    let span_compute_RLC = tracing::span!(tracing::Level::INFO, "compute_RLC");
+    let _guard_compute_RLC = span_compute_RLC.enter();
+
     let c = c_vec
-      .iter()
-      .zip(powers_of_s.iter())
+      .par_iter()
+      .zip(powers_of_s.par_iter())
       .map(|(c, p)| c.clone() * *p)
-      .fold(Commitment::<G>::default(), |acc, item| acc + item);
+      .reduce_with(|acc, item| acc + item)
+      .unwrap_or_else(Commitment::<G>::default);
+    // let c = G::vartime_multiscalar_mul(&powers_of_s, c_vec.iter().map(|c| c.preprocessed()).collect());
+    // use crate::traits::commitment::CommitmentTrait;
+    // let raw_gs: Vec<G> = c_vec.iter().map(|c| c.raw()).collect();
+    // let pre_processed = c_vec.iter().map(|c| c.clone().raw().preprocessed()).collect();
+    // let c = G::vartime_multiscalar_mul(&powers_of_s, &pre_processed);
+    drop(_guard_compute_RLC);
 
     PolyEvalInstance {
       c,
       x: x.to_vec(),
-      e,
+      e
     }
   }
 }
