@@ -3,6 +3,8 @@
 use ff::PrimeField;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
+use crate::spartan::math::Math;
+
 /// Represents the multilinear extension polynomial (MLE) of the equality polynomial $eq(x,e)$, denoted as $\tilde{eq}(x, e)$.
 ///
 /// The polynomial is defined by the formula:
@@ -69,8 +71,15 @@ impl<Scalar: PrimeField> EqPolynomial<Scalar> {
   }
 
   /// Computes the lengths of the left and right halves of the `EqPolynomial`'s vector `r`.
+  /// Note: Using Jolt implementation with matrix_aspect_ratio = 1
   pub fn compute_factored_lens(ell: usize) -> (usize, usize) {
-    (ell / 2, ell - ell / 2)
+    let mut row_size = (ell/ 2).pow2();
+    row_size = row_size.next_power_of_two();
+
+    let right_num_vars = std::cmp::min(row_size.log_2(), ell - 1);
+    let left_num_vars = ell - right_num_vars;
+
+    (left_num_vars, right_num_vars)
   }
 
   /// Computes the left and right halves of the `EqPolynomial`.
