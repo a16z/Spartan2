@@ -22,12 +22,18 @@ pub struct R1CS<G: Group> {
 /// A type that holds the shape of the R1CS matrices
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct R1CSShape<G: Group> {
-  pub(crate) num_cons: usize,
-  pub(crate) num_vars: usize,
-  pub(crate) num_io: usize,
-  pub(crate) A: Vec<(usize, usize, G::Scalar)>,
-  pub(crate) B: Vec<(usize, usize, G::Scalar)>,
-  pub(crate) C: Vec<(usize, usize, G::Scalar)>,
+  /// -
+  pub num_cons: usize,
+  /// -
+  pub num_vars: usize,
+  /// -
+  pub num_io: usize,
+  /// -
+  pub A: Vec<(usize, usize, G::Scalar)>,
+  /// -
+  pub B: Vec<(usize, usize, G::Scalar)>,
+  /// -
+  pub C: Vec<(usize, usize, G::Scalar)>,
 }
 
 /// A type that holds a witness for a given R1CS instance
@@ -135,6 +141,7 @@ impl<G: Group> R1CSShape<G> {
     assert!(self.num_io < self.num_vars);
   }
 
+  /// - 
   #[tracing::instrument(skip_all, name = "R1CSShape::multiply_vec")]
   pub fn multiply_vec(
     &self,
@@ -243,6 +250,7 @@ impl<G: Group> R1CSShape<G> {
     Ok((Az, Bz, Cz))
   }
 
+  /// -
   #[tracing::instrument(skip_all, name = "R1CSShape::multiply_vec_uniform")]
   pub fn multiply_vec_uniform(
     &self,
@@ -263,6 +271,7 @@ impl<G: Group> R1CSShape<G> {
       } else if index == W.len() {
         G::Scalar::ONE
       } else {
+        println!("W.len() = {}, index = {}", W.len(), index);
         X[index - W.len() - 1]
       }
     };

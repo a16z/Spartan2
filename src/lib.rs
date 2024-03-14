@@ -15,7 +15,7 @@
 mod bellpepper;
 mod constants;
 mod digest;
-mod r1cs;
+pub mod r1cs;
 mod utils;
 
 // public modules
@@ -25,6 +25,8 @@ pub mod spartan;
 pub mod traits;
 
 use bellpepper_core::Circuit;
+use r1cs::R1CSShape;
+use spartan::upsnark::R1CSSNARK;
 use core::marker::PhantomData;
 use errors::SpartanError;
 use serde::{Deserialize, Serialize};
@@ -88,8 +90,8 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + UniformSNARKTrait<G> + Precommitted
   }
 
   /// Produces prover and verifier keys for the direct SNARK
-  pub fn setup_precommitted(circuit: C, n: usize, ck: CommitmentKey::<G>) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
-    let (pk, vk) = S::setup_precommitted(circuit, n, ck)?;
+  pub fn setup_precommitted(shape: R1CSShape<G>, n: usize, ck: CommitmentKey::<G>) -> Result<(ProverKey<G, S>, VerifierKey<G, S>), SpartanError> {
+    let (pk, vk) = S::setup_precommitted(shape, n, ck)?;
     Ok((ProverKey { pk }, VerifierKey { vk }))
   }
 
@@ -106,9 +108,9 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + UniformSNARKTrait<G> + Precommitted
   }
 
   /// Produces a proof of satisfiability of the provided circuit
-  pub fn prove_precommitted(pk: &ProverKey<G, S>, circuit: C, w_segments: Vec<Vec<G::Scalar>>, comm_w_vec: Vec<Commitment<G>> ) -> Result<Self, SpartanError> {
+  pub fn prove_precommitted(pk: &ProverKey<G, S>, w_segments: Vec<Vec<G::Scalar>>, comm_w_vec: Vec<Commitment<G>> ) -> Result<Self, SpartanError> {
     // prove the instance using Spartan
-    let snark = S::prove_precommitted(&pk.pk, circuit, w_segments, comm_w_vec)?;
+    let snark = S::prove_precommitted(&pk.pk, w_segments, comm_w_vec)?;
 
     Ok(SNARK {
       snark,

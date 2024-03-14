@@ -1,4 +1,5 @@
 //! This module defines a collection of traits that define the behavior of a zkSNARK for RelaxedR1CS
+use crate::r1cs::{R1CSShape, R1CS};
 use crate::{errors::SpartanError, traits::Group}; //, CommitmentKey, Commitment};
 use bellpepper_core::Circuit;
 use serde::{Deserialize, Serialize};
@@ -22,16 +23,15 @@ pub trait PrecommittedSNARKTrait<G: Group>:
   Sized + Send + Sync + Serialize + for<'de> Deserialize<'de> + UniformSNARKTrait<G> 
 {
   /// Setup that takes in the generators used to pre-committed the witness 
-  fn setup_precommitted<C: Circuit<G::Scalar>>(
-    circuit: C,
+  fn setup_precommitted(
+    shape_single: R1CSShape<G>, 
     num_steps: usize,
     ck: CommitmentKey<G>,
   ) -> Result<(Self::ProverKey, Self::VerifierKey), SpartanError>;
 
   /// Produces a new SNARK for a relaxed R1CS
-  fn prove_precommitted<C: Circuit<G::Scalar>>(
+  fn prove_precommitted(
     pk: &Self::ProverKey, 
-    circuit: C, 
     w_segments: Vec<Vec<G::Scalar>>,
     comm_w: Vec<Commitment<G>>, 
   ) -> Result<Self, SpartanError>;
