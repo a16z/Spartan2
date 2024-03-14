@@ -7,6 +7,8 @@
 //! and only works with (normal) R1CS, making it more efficient.
 //! This basic R1CSStruct also implements "uniform" and "precommitted" traits.
 
+use std::cmp::max;
+
 use crate::{
   bellpepper::{
     r1cs::{SpartanShape, SpartanWitness},
@@ -589,23 +591,30 @@ impl<G: Group, EE: EvaluationEngineTrait<G>> UniformSNARKTrait<G> for R1CSSNARK<
 }
 
 impl<G: Group, EE: EvaluationEngineTrait<G>> PrecommittedSNARKTrait<G> for R1CSSNARK<G, EE> {
-  #[tracing::instrument(skip_all, name = "SNARK::setup_precommitted")]
-  fn setup_precommitted<C: Circuit<G::Scalar>>(
-    circuit: C,
+  #[tracing::instrument(skip_all, name = "SNARK::setup_uniform")]
+  fn setup_precommitted(
+    S_single: R1CSShape<G>,
     num_steps: usize, 
     ck: <<G as Group>::CE as CommitmentEngineTrait<G>>::CommitmentKey, 
   ) -> Result<(UniformProverKey<G, EE>, UniformVerifierKey<G, EE>), SpartanError> {
-    let mut cs: ShapeCS<G> = ShapeCS::new();
-    let _ = circuit.synthesize(&mut cs);
 
-    // TODO(arasuarun): don't generate ck (minor optimization)
-    let (S, _ck, num_cons_total, num_vars_total) = cs.r1cs_shape_uniform(num_steps);
+    let (S, num_cons_total, num_vars_total) = {
+      let S_padded = S_single.pad_vars();
+      let num_constraints_total = S_padded.num_cons * num_steps;
+      let num_aux_total = S_padded.num_vars * num_steps;
+  
+      let pad_num_constraints = num_constraints_total.next_power_of_two();
+      let pad_num_aux = num_aux_total.next_power_of_two();
+      let m = max(num_constraints_total, num_aux_total).next_power_of_two();
+  
+      (S_padded, pad_num_constraints, pad_num_aux) 
+    };
 
     let (pk_ee, vk_ee) = EE::setup(&ck);
 
     let vk: UniformVerifierKey<G, EE> =
       UniformVerifierKey::new(vk_ee, S.clone(), num_steps, num_cons_total, num_vars_total);
-
+    
     let pk = UniformProverKey {
       ck,
       pk_ee,
