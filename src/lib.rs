@@ -106,9 +106,9 @@ impl<G: Group, S: RelaxedR1CSSNARKTrait<G> + UniformSNARKTrait<G> + Precommitted
   }
 
   /// Produces a proof of satisfiability of the provided circuit
-  pub fn prove_precommitted(pk: &ProverKey<G, S>, circuit: C, w_segments: Vec<Vec<G::Scalar>>, comm_w_vec: Vec<Commitment<G>> ) -> Result<Self, SpartanError> {
+  pub fn prove_precommitted(pk: &ProverKey<G, S>, w_segments: Vec<Vec<G::Scalar>>, comm_w_vec: Vec<Commitment<G>> ) -> Result<Self, SpartanError> {
     // prove the instance using Spartan
-    let snark = S::prove_precommitted(&pk.pk, circuit, w_segments, comm_w_vec)?;
+    let snark = S::prove_precommitted(&pk.pk, w_segments, comm_w_vec)?;
 
     Ok(SNARK {
       snark,

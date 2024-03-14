@@ -29,9 +29,8 @@ pub trait PrecommittedSNARKTrait<G: Group>:
   ) -> Result<(Self::ProverKey, Self::VerifierKey), SpartanError>;
 
   /// Produces a new SNARK for a relaxed R1CS
-  fn prove_precommitted<C: Circuit<G::Scalar>>(
+  fn prove_precommitted(
     pk: &Self::ProverKey, 
-    circuit: C, 
     w_segments: Vec<Vec<G::Scalar>>,
     comm_w: Vec<Commitment<G>>, 
   ) -> Result<Self, SpartanError>;
